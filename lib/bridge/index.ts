@@ -11,7 +11,7 @@
  */
 import { ClientImportError, filesFromEntry, importFolder, importGithub, importZipFile } from "@/lib/client/importClient";
 import { planCity, type PlanOptions } from "@/lib/city/blockLayout";
-import { isSecretPath, isBinaryExt } from "@/lib/analyze/rules";
+import { isSecretPath, isBinaryExt, mediaMime, MEDIA_MAX_BYTES } from "@/lib/analyze/rules";
 import { parseGitHubUrl } from "@/lib/github";
 import type { ImportProgress, Project } from "@/lib/types";
 import { own } from "@/lib/safeDict";
@@ -83,6 +83,7 @@ export function checkGithubUrl(url: string): { ok: true; owner: string; repo: st
 
 export type Source =
   | { kind: "text"; text: string; truncated: boolean; note?: string }
+  | { kind: "media"; mime: string; media: "audio" | "video"; url: string; revoke: boolean }
   | { kind: "secret" | "binary" | "missing" | "error"; message: string };
 
 /** The file's source for the Code tab / focus mode. Secrets are never read. */
@@ -90,6 +91,33 @@ export async function getSource(project: Project, path: string): Promise<Source>
   const f = project.files.find((x) => x.path === path);
   if (!f) return { kind: "missing", message: "Not in this project." };
   if (f.secret || isSecretPath(path)) return { kind: "secret", message: "This is a secrets file. CodeLens lists it by name only; its contents are never read." };
+  const mime = mediaMime(path);
+  if (mime) {
+    const media = mime.startsWith("video/") ? "video" : "audio";
+    const tooBig = { kind: "binary" as const, message: "This media file is over the 10 MB player limit, so it is not played here. It still gets a building." };
+    const blob = project.media && own(project.media, path);
+    if (blob instanceof Blob) {
+      if (blob.size > MEDIA_MAX_BYTES) return tooBig;
+      // Re-wrap with the allowlisted content type, then hand the player a blob: URL (CSP media-src blob:).
+      return { kind: "media", mime, media, url: URL.createObjectURL(blob.type === mime ? blob : new Blob([blob], { type: mime })), revoke: true };
+    }
+    if (project.source.kind === "github") {
+      if (f.bytes > MEDIA_MAX_BYTES) return tooBig;
+      const s = project.source;
+      const q = new URLSearchParams({ owner: s.owner, repo: s.repo, ref: s.branch, path });
+      try {
+        const r = await fetch("/api/github/media?" + q.toString());
+        if (r.status === 413) return tooBig;
+        if (!r.ok) return { kind: "error", message: (await r.text()) || `GitHub said ${r.status}.` };
+        const b = await r.blob();
+        if (b.size > MEDIA_MAX_BYTES) return tooBig;
+        return { kind: "media", mime, media, url: URL.createObjectURL(new Blob([b], { type: mime })), revoke: true };
+      } catch {
+        return { kind: "error", message: "Could not reach the CodeLens server." };
+      }
+    }
+    return { kind: "binary", message: "This audio / video file was not kept in this browser (over the size budget), so it cannot be played. It still gets a building." };
+  }
   if (f.binary || isBinaryExt(path)) return { kind: "binary", message: "This file is binary, so there is no text to show. It still gets a building." };
   const pre = own(project.previews, path);
   const truncated = (t: string) => f.lines > t.split("\n").length;

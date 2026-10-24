@@ -50,7 +50,7 @@ body.ap { margin: 0; min-height: 100svh; background: var(--sc-canvas); color: va
 .ws-key:focus-visible, .ws-theme:focus-visible, .ws-help:focus-visible { outline: 2px solid var(--sc-ink); outline-offset: 2px; }
 .ws-key i { width: 0.55rem; height: 0.55rem; border-radius: 50%; background: #9AA2AE; }
 
-.ws { flex: 1; min-height: 0; display: grid; grid-template-columns: 15.75rem minmax(0, 1fr) 22.5rem; }
+.ws { --tree-w: 15.75rem; flex: 1; min-height: 0; display: grid; grid-template-columns: var(--tree-w) minmax(0, 1fr) 22.5rem; transition: grid-template-columns 240ms cubic-bezier(.2,.7,.2,1); }
 .ws-h { margin: 0; font: 600 0.72rem/1 var(--sc-font-mono); letter-spacing: 0.07em; text-transform: uppercase; color: var(--sc-ink-soft); display: flex; justify-content: space-between; }
 .ws-tree { background: var(--sc-surface); border-right: 1px solid color-mix(in oklab, var(--sc-ink) 10%, transparent); padding: 1.1rem 0.75rem 1rem 1rem; display: flex; flex-direction: column; gap: 0.8rem; min-height: 0; }
 .ws-tree .ws-h { padding-right: 0.4rem; }
@@ -175,7 +175,7 @@ body.is-focus .ws-import { display: none; }
 .ws-float__cap code { color: var(--sc-ink); font-weight: 600; }
 @media (prefers-reduced-motion: reduce) { .vsc { animation: none; } }
 /* In focus the Talk panel stays beside Monaco (chat while reading code); the tree narrows a little. */
-body.is-focus .ws { grid-template-columns: 13.5rem minmax(0, 1fr) 21rem; }
+body.is-focus .ws { --tree-w: 13.5rem; grid-template-columns: var(--tree-w) minmax(0, 1fr) 21rem; }
 
 /* ===================================================== day / night toggle == */
 .ws-theme { display: inline-flex; align-items: center; gap: 0.45rem; height: 2.2rem; padding: 0 0.8rem 0 0.6rem; border-radius: 999px; border: 1.5px solid color-mix(in oklab, var(--sc-ink) 18%, transparent);
@@ -260,3 +260,55 @@ body.is-night .ws-citynote { background: rgb(23 28 37 / 0.92); }
 .ws-intro__list li { display: block; position: relative; padding-left: 2.25rem; min-height: 1.6rem; }
 .ws-intro__list li > .ii { position: absolute; left: 0; top: 0; }
 .ws-intro__card { max-height: calc(100vh - 2rem); overflow: auto; }
+
+/* collapsible files sidebar (Ctrl+B / Cmd+B, like VS Code); the city canvas resizes to fill */
+.ws-tree { min-width: 0; overflow: hidden; transition: padding 240ms cubic-bezier(.2,.7,.2,1), opacity 180ms, visibility 0s; }
+.ws-tree > * { min-width: 11.5rem; }
+body.tree-off .ws { --tree-w: 0rem; }
+body.tree-off .ws-tree { padding-left: 0; padding-right: 0; border-right-width: 0; opacity: 0; visibility: hidden; transition: padding 240ms cubic-bezier(.2,.7,.2,1), opacity 160ms, visibility 0s 240ms; }
+body.no-anim .ws, body.no-anim .ws-tree { transition: none !important; }
+@media (prefers-reduced-motion: reduce) { .ws, .ws-tree { transition: none; } }
+.ws-side { width: 2.2rem; height: 2.2rem; flex: none; display: inline-grid; place-items: center; border-radius: 8px; border: 1.5px solid color-mix(in oklab, var(--sc-ink) 18%, transparent); background: none; color: var(--sc-ink); cursor: pointer; }
+.ws-side svg { width: 1.15rem; height: 1.15rem; }
+.ws-side__pane { fill: currentColor; opacity: 0.85; transition: opacity 200ms; }
+.ws-side[aria-expanded="false"] .ws-side__pane { opacity: 0; }
+.ws-side:focus-visible { outline: 2px solid var(--sc-ink); outline-offset: 2px; }
+@media (hover: hover) and (pointer: fine) { .ws-side:hover, .ws-help:hover, .ws-theme:hover { background: color-mix(in oklab, var(--sc-ink) 6%, transparent); } }
+.ws-bar .ws-side[hidden] { display: none; }
+
+/* Monaco + its VS Code chrome follow night mode: VS Code Dark+ (Dark Modern chrome) */
+body.is-night .vsc { --vb: #2B2B2B; background: #1F1F1F; color: #CCCCCC; }
+body.is-night .vsc-tabs { background: #181818; }
+body.is-night .vsc-tab { background: #1F1F1F; color: #FFFFFF; box-shadow: inset 0 1px 0 #0078D4; }
+body.is-night .vsc-x { color: #CCCCCC; }
+@media (hover: hover) and (pointer: fine) { body.is-night .vsc-x:hover { background: #313131; } }
+body.is-night .vsc-crumbs { background: #1F1F1F; color: #A9A9A9; }
+body.is-night .vsc-crumbs .is-file { color: #CCCCCC; }
+body.is-night .vsc-binary { color: #A9A9A9; }
+body.is-night .vsc-status { background: #181818; color: #CCCCCC; }
+body.is-night .vsc-status__l { background: #0078D4; }
+
+/* VS Code-style folder tree: chevrons, compact indentation guides */
+.ws-h--tree { align-items: center; }
+.ws-h__r { display: inline-flex; align-items: center; gap: 0.35rem; }
+.ws-collapse { width: 1.35rem; height: 1.35rem; display: inline-grid; place-items: center; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--sc-ink-soft); cursor: pointer; }
+.ws-collapse svg { width: 0.9rem; height: 0.9rem; }
+@media (hover: hover) and (pointer: fine) { .ws-collapse:hover, .ws-dirbtn:hover { background: color-mix(in oklab, var(--sc-ink) 7%, transparent); color: var(--sc-ink); } }
+.ws-collapse:focus-visible, .ws-dirbtn:focus-visible { outline: 2px solid var(--sc-ink); outline-offset: -2px; }
+.ws-files li { padding-left: calc(var(--d, 0) * 0.75rem);
+  background-image: repeating-linear-gradient(to right, color-mix(in oklab, var(--sc-ink) 13%, transparent) 0 1px, transparent 1px 0.75rem);
+  background-size: calc(var(--d, 0) * 0.75rem) 100%; background-repeat: no-repeat; background-position: 0.3rem 0; }
+.ws-files li.ws-dir { padding-top: 0; padding-bottom: 0; }
+.ws-dirbtn { width: 100%; display: flex; align-items: center; gap: 0.3rem; padding: 0.3rem 0.35rem 0.3rem 0.1rem; border: 0; border-radius: 6px; background: none; font: inherit;
+  color: color-mix(in oklab, var(--sc-ink) 62%, var(--sc-canvas)); text-align: left; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ws-chev { flex: none; width: 0.85rem; height: 0.85rem; background: currentColor; transition: transform 140ms;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M6 4l4 4-4 4' fill='none' stroke='black' stroke-width='1.6'/%3E%3C/svg%3E") center / contain no-repeat; }
+.ws-dirbtn[aria-expanded="true"] .ws-chev { transform: rotate(90deg); }
+.ws-file { white-space: nowrap; }
+
+/* audio / video player (media files) */
+.cl-media { margin: 0; display: grid; gap: 0.6rem; justify-items: center; width: min(100%, 36rem); }
+.cl-media audio { width: 100%; }
+.cl-media video { width: 100%; max-height: 60vh; border-radius: 8px; background: #000; }
+.cl-media figcaption { font-size: 12px; color: inherit; opacity: 0.8; word-break: break-all; }
+.ws-nocode p[hidden], .vsc-binary p[hidden] { display: none; }

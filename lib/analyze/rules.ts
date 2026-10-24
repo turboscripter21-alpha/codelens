@@ -102,6 +102,18 @@ export function isLockfile(path: string): boolean {
   return LOCKFILES.has(path.slice(path.lastIndexOf("/") + 1).toLowerCase());
 }
 
+/** Audio / video files that open in a player (HTML5 <audio> / <video>), with their content type. */
+const MEDIA_MIME: Record<string, string> = {
+  mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", m4a: "audio/mp4", flac: "audio/flac",
+  mp4: "video/mp4", webm: "video/webm",
+};
+/** Largest media file CodeLens will play (bytes). */
+export const MEDIA_MAX_BYTES = 10 * 1024 * 1024;
+export function mediaMime(path: string): string | null {
+  const e = extOf(path);
+  return Object.prototype.hasOwnProperty.call(MEDIA_MIME, e) ? MEDIA_MIME[e] : null;
+}
+
 export function isBinaryExt(path: string): boolean {
   return BINARY_EXT.has(extOf(path));
 }

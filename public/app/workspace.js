@@ -8,6 +8,8 @@ import { createCity } from './city/engine.js';
 import { FEATURES } from './features.js';
 import * as Lib from './citylib/index.js';
 import { initChat } from './chat.js';
+import { showMedia, clearMedia } from './media.js';
+const MEDIA_RE = /\.(mp3|wav|ogg|m4a|flac|mp4|webm)$/i;
 
 const $ = (s, r = document) => r.querySelector(s);
 const q = new URLSearchParams(location.search);
@@ -58,11 +60,13 @@ if (!started) {
   $('[data-empty]').hidden = false;
   document.title = 'Import a repo first · CodeLens';
   $('[data-intro-open]').hidden = true;
+  $('[data-sidetoggle]').hidden = true;
   window.__workspaceReady = true;
 }
 
 function run(project) {
 const files = project.files;
+let current = null;   // the selected file path
 const byPath = table(files.map(f => [f.path, f]));
 const plan = CL.plan(project, { parks: FEATURES.parks, plazas: FEATURES.plazas, glowArtery: FEATURES.glowArtery, gateway: FEATURES.gateway });
 const bById = table(plan.buildings.map(b => [b.id, b]));
@@ -113,6 +117,7 @@ function plain(f) {
   const n = base(f.path), b = buildingOf(f.path), dir = f.path.includes('/') ? f.path.slice(0, f.path.lastIndexOf('/')) : '';
   const where = dir ? ` It stands in the ${dir}/ district (folder).` : ' It stands in the town centre (the project root).';
   if (f.secret) return `This is ${n}, a secrets file. In the city it is the Vault: CodeLens shows only its name and never reads what is inside.${where}`;
+  if (f.binary && MEDIA_RE.test(f.path)) return `This is ${n}, ${/\.(mp4|webm)$/i.test(f.path) ? 'a video' : 'an audio'} file (${(f.bytes / 1024).toFixed(1)} KB). Open the Code tab or double-click the building to play it.${where}`;
   if (f.binary) return `This is ${n}, a binary file (${(f.bytes / 1024).toFixed(1)} KB, no readable code). Its building is small and plain.${where}`;
   const by = f.usedBy.length, uses = f.uses.length, lines = (f.lines || f.loc || 0);
   const a = /^[aeiou]/i.test(f.language) ? 'an' : 'a';
@@ -123,35 +128,81 @@ function plain(f) {
   return t + where;
 }
 
-/* file tree: folders first, alphabetical, like an editor */
+/* file tree: VS Code-style collapsible folders (folders first, alphabetical). Only expanded
+   folders are rendered, so 1,000+ files stay smooth. Top-level entries show; folders start
+   collapsed except the path to the selected file. Open folders are remembered per project. */
 const list = $('[data-files]');
-{
-  const sorted = [...files].sort((a, b) => {
-    const A = a.path.split('/'), B = b.path.split('/');
-    for (let i = 0; i < Math.min(A.length, B.length); i++) {
-      if (A[i] === B[i]) continue;
-      const ad = i < A.length - 1, bd = i < B.length - 1;
-      if (ad !== bd) return ad ? -1 : 1;
-      return A[i].localeCompare(B[i]);
+const tree = (() => {
+  const root = { path: '', dirs: new Map(), files: [] };
+  for (const f of files) {
+    const parts = f.path.split('/'); let n = root;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const dp = parts.slice(0, i + 1).join('/');
+      let c = n.dirs.get(parts[i]); if (!c) { c = { name: parts[i], path: dp, dirs: new Map(), files: [] }; n.dirs.set(parts[i], c); }
+      n = c;
     }
-    return A.length - B.length;
-  });
-  let prev = [];
-  const frag = document.createDocumentFragment();
-  for (const f of sorted) {
-    const p = f.path, dirs = p.split('/').slice(0, -1);
-    dirs.forEach((d, i) => {
-      if (dirs.slice(0, i + 1).join('/') !== prev.slice(0, i + 1).join('/')) {
-        const li = document.createElement('li'); li.className = 'ws-dir'; li.style.setProperty('--d', i); li.textContent = d + '/'; frag.append(li);
-      }
-    });
-    prev = dirs;
-    const li = document.createElement('li'); li.style.setProperty('--d', dirs.length);
-    const b = document.createElement('button'); b.type = 'button'; b.dataset.path = p; b.className = 'ws-file ws-file--' + (f.secret ? 'vault' : modOf(f));
-    b.innerHTML = '<span class="ws-file__dot"></span>'; b.append(base(p)); b.title = p;
-    li.append(b); frag.append(li);
+    n.files.push(f);
   }
-  list.append(frag);
+  const TKEY = 'codelens.tree.' + (src.kind === 'github' ? src.owner + '/' + src.repo : src.kind + ':' + (src.name || project.name));
+  let open = new Set();
+  try { const v = JSON.parse(ls.get(TKEY) || '[]'); if (Array.isArray(v)) open = new Set(v.filter(x => typeof x === 'string').slice(0, 2000)); } catch { /* bad JSON */ }
+  const save = () => ls.set(TKEY, JSON.stringify([...open].slice(0, 2000)));
+  const cmp = (a, b) => a.localeCompare(b);
+  function rows(n, d, frag) {
+    for (const k of [...n.dirs.keys()].sort(cmp)) {
+      const c = n.dirs.get(k), isOpen = open.has(c.path);
+      const li = document.createElement('li'); li.className = 'ws-dir'; li.style.setProperty('--d', d);
+      const bt = document.createElement('button'); bt.type = 'button'; bt.className = 'ws-dirbtn'; bt.dataset.dir = c.path; bt.title = c.path + '/';
+      bt.setAttribute('aria-expanded', String(isOpen)); bt.innerHTML = '<i class="ws-chev" aria-hidden="true"></i>'; bt.append(c.name);
+      li.append(bt); frag.append(li);
+      if (isOpen) rows(c, d + 1, frag);
+    }
+    for (const f of [...n.files].sort((a, b) => cmp(base(a.path), base(b.path)))) {
+      const li = document.createElement('li'); li.style.setProperty('--d', d);
+      const bt = document.createElement('button'); bt.type = 'button'; bt.dataset.path = f.path; bt.className = 'ws-file ws-file--' + (f.secret ? 'vault' : modOf(f));
+      bt.innerHTML = '<span class="ws-file__dot"></span>'; bt.append(base(f.path)); bt.title = f.path;
+      if (f.path === current) bt.setAttribute('aria-current', '');
+      li.append(bt); frag.append(li);
+    }
+  }
+  function render() { const frag = document.createDocumentFragment(); rows(root, 0, frag); const top = list.scrollTop; list.replaceChildren(frag); list.scrollTop = top; }
+  function reveal(p) {   // open every folder on the way to p; true if something changed
+    const parts = p.split('/'); let changed = false;
+    for (let i = 1; i < parts.length; i++) { const dp = parts.slice(0, i).join('/'); if (!open.has(dp)) { open.add(dp); changed = true; } }
+    if (changed) { save(); render(); }
+    return changed;
+  }
+  list.addEventListener('click', e => {
+    const bt = e.target.closest('.ws-dirbtn'); if (!bt) return;
+    const dp = bt.dataset.dir;
+    if (open.has(dp)) { for (const o of [...open]) if (o === dp || o.startsWith(dp + '/')) open.delete(o); } else open.add(dp);
+    save(); render();
+    list.querySelector('[data-dir="' + CSS.escape(dp) + '"]')?.focus({ preventScroll: true });
+  });
+  $('[data-collapse-all]').addEventListener('click', () => { open.clear(); save(); render(); if (current) reveal(current); list.scrollTop = 0; });
+  render();
+  return { reveal, render, get openDirs() { return [...open]; } };
+})();
+
+/* collapsible files sidebar: header button or Ctrl+B / Cmd+B (like VS Code), remembered in this browser */
+{
+  const btn = $('[data-sidetoggle]'), TREE_KEY = 'codelens.sidebar';
+  const set = (off, save) => {
+    document.body.classList.toggle('tree-off', off);
+    btn.setAttribute('aria-expanded', String(!off));
+    btn.title = (off ? 'Show' : 'Hide') + ' the files sidebar (Ctrl+B)';
+    $('[data-side-label]').textContent = off ? 'Show files' : 'Hide files';
+    $('#ws-tree').inert = off;
+    if (save) ls.set(TREE_KEY, off ? 'off' : 'on');
+  };
+  document.body.classList.add('no-anim'); set(ls.get(TREE_KEY) === 'off', false);
+  requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove('no-anim')));
+  const toggle = () => set(!document.body.classList.contains('tree-off'), true);
+  btn.addEventListener('click', toggle);
+  addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'b' || e.key === 'B') && !document.querySelector('dialog[open]')) { e.preventDefault(); e.stopPropagation(); toggle(); }
+  }, true);
+  window.CodeLensSidebar = { toggle, set: off => set(off, true), get open() { return !document.body.classList.contains('tree-off'); } };
 }
 
 /* the live city */
@@ -172,6 +223,7 @@ function say(f) {
   const n = base(f.path), b = buildingOf(f.path);
   if (f.secret) return `I'm ${n}, the vault. I hold secrets, so CodeLens only knows my name; my contents are never read.`;
   if (f.lockfile) return `I'm ${n}, a lockfile. Tools write me (${(f.lines || 0).toLocaleString()} lines) to pin exact dependency versions, so my lines don't count as code.`;
+  if (f.binary && MEDIA_RE.test(f.path)) return `I'm ${n}, ${/\.(mp4|webm)$/i.test(f.path) ? 'a video' : 'a sound'} file (${(f.bytes / 1024).toFixed(1)} KB). No code in me, but you can play me.`;
   if (f.binary) return `I'm ${n}, a binary file (${(f.bytes / 1024).toFixed(1)} KB). There is no code in me to explain.`;
   const uses = f.uses.length, by = f.usedBy.length;
   return `I'm ${n}, ${f.loc.toLocaleString()} lines of ${f.language} code${b && b.tier === 'tall' ? ', one of the tallest towers in town' : ''}. ` +
@@ -184,10 +236,10 @@ function li(p, kind) {
   if (kind && kind !== 'import') { const k = document.createElement('span'); k.textContent = kind; l.append(k); }
   return l;
 }
-let current = null;
 function select(p, push) {
   const f = byPath[p]; if (!f) return;
   current = p;
+  tree.reveal(p);
   document.querySelectorAll('.ws-files [data-path]').forEach(e => e.toggleAttribute('aria-current', e.dataset.path === p));
   const cur = list.querySelector('[aria-current]'); if (cur && push !== false) cur.scrollIntoView({ block: 'nearest' });
   const b = buildingOf(p); city.select(b ? b.id : null);
@@ -214,9 +266,11 @@ const esc = s => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&g
 async function source(p) { return CL.getSource(project, p); }
 async function showCode(p) {
   const real = $('[data-code-real]'), none = $('[data-code-none]'), msg = $('[data-nocode-msg]');
-  real.hidden = true; none.hidden = false; msg.textContent = 'Loading ' + base(p) + '…';
+  real.hidden = true; none.hidden = false; msg.hidden = false; msg.textContent = 'Loading ' + base(p) + '…';
+  clearMedia(none);
   const s = await source(p);
-  if (current !== p) return;
+  if (current !== p) { if (s.kind === 'media' && s.revoke) URL.revokeObjectURL(s.url); return; }
+  if (s.kind === 'media') { msg.hidden = true; showMedia(none, s, base(p)); $('[data-codenote]').textContent = 'Read only · player'; return; }
   if (s.kind !== 'text') { msg.textContent = s.message; $('[data-codenote]').textContent = 'Read only'; return; }
   const lines = s.text.replace(/\n$/, '').split('\n');
   $('[data-code-lines]').innerHTML = lines.map((l, i) => '<span class="ln">' + (i + 1) + '</span>' + esc(l)).join('\n');

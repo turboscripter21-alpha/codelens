@@ -9,8 +9,8 @@
  */
 import { analyzeEntries } from "@/lib/analyze/analyze";
 import { entryFromBytes, planEntries, type SourceEntry } from "@/lib/analyze/collect";
-import { CAPS } from "@/lib/analyze/rules";
-import { readZip } from "@/lib/analyze/zip";
+import { CAPS, mediaMime, MEDIA_MAX_BYTES } from "@/lib/analyze/rules";
+import { MEDIA_BUDGET, readZip } from "@/lib/analyze/zip";
 import type { ImportProgress, Project } from "@/lib/types";
 
 export class ClientImportError extends Error {
@@ -76,13 +76,17 @@ export async function importZipFile(file: File, emit: Emit): Promise<Project> {
   await tick();
   let read;
   try {
-    read = readZip(data);
+    read = readZip(data, undefined, true);
   } catch {
     throw new ClientImportError("bad-zip", "That file is not a valid .zip archive.");
   }
   emit({ stage: "read", detail: `${read.entries.length.toLocaleString()} files`, ratio: 1 });
   await tick();
-  return finish(read.entries, read.plan.skipped, read.plan.warnings, read.plan.skippedExamples, file.name.replace(/\.zip$/i, ""), { kind: "zip", name: file.name }, emit);
+  const project = await finish(read.entries, read.plan.skipped, read.plan.warnings, read.plan.skippedExamples, file.name.replace(/\.zip$/i, ""), { kind: "zip", name: file.name }, emit);
+  const media: Record<string, Blob> = {};
+  for (const [p, m] of Object.entries(read.media)) if (project.files.some((f) => f.path === p)) media[p] = new Blob([m.bytes as BlobPart], { type: m.mime });
+  if (Object.keys(media).length) project.media = media;
+  return project;
 }
 
 export async function importFolder(name: string, files: { file: File; path: string }[], emit: Emit): Promise<Project> {
@@ -98,7 +102,19 @@ export async function importFolder(name: string, files: { file: File; path: stri
     entries.push(...read);
     emit({ stage: "read", detail: `${Math.min(i + BATCH, plan.keep.length).toLocaleString()} / ${plan.keep.length.toLocaleString()} files`, ratio: (i + BATCH) / plan.keep.length });
   }
-  return finish(entries, plan.skipped, plan.warnings, plan.skippedExamples, plan.root ?? name, { kind: "folder", name }, emit);
+  const project = await finish(entries, plan.skipped, plan.warnings, plan.skippedExamples, plan.root ?? name, { kind: "folder", name }, emit);
+  // Audio / video for the player: the dropped File objects themselves (each <= 10 MB, capped in total).
+  const media: Record<string, Blob> = {};
+  let budget = MEDIA_BUDGET.bytes, n = 0;
+  for (const e of plan.keep) {
+    const mime = e.action === "binary" ? mediaMime(e.path) : null;
+    const f = byRaw.get(e.raw);
+    if (!mime || !f || f.size > MEDIA_MAX_BYTES || f.size > budget || n >= MEDIA_BUDGET.files) continue;
+    budget -= f.size; n++;
+    media[e.path] = new Blob([f], { type: mime });
+  }
+  if (n) project.media = media;
+  return project;
 }
 
 async function finish(entries: SourceEntry[], skipped: Record<string, number>, warnings: string[], skippedExamples: Record<string, string[]>, name: string, source: Project["source"], emit: Emit): Promise<Project> {

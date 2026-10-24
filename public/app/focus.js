@@ -2,6 +2,7 @@
    on the left in a read-only Monaco editor themed like VS Code Light Modern;
    the building floats alone on the right. The source is the imported project's real file. */
 import { createLevitator } from './levitate.js';
+import { showMedia, clearMedia } from './media.js';
 
 /* Wiring: the workspace hands us the real source, the building and the project name. */
 let sourceOf = async () => ({ kind: 'missing', message: 'No source.' });
@@ -104,6 +105,63 @@ async function setupMonaco(monaco) {
       'focusBorder': '#005FB8',
     },
   });
+  // VS Code "Dark Modern" chrome + Dark+ token colours, used while the workspace is in night mode.
+  monaco.editor.defineTheme('codelens-dark-modern', {
+    base: 'vs-dark', inherit: true,
+    rules: [
+      { token: '', foreground: 'D4D4D4' },
+      { token: 'keyword', foreground: '569CD6' },
+      { token: 'keyword.control', foreground: 'C586C0' },
+      { token: 'entity.name.function', foreground: 'DCDCAA' },
+      { token: 'identifier', foreground: '9CDCFE' },
+      { token: 'type.identifier', foreground: '4EC9B0' },
+      { token: 'string', foreground: 'CE9178' },
+      { token: 'string.escape', foreground: 'D7BA7D' },
+      { token: 'comment', foreground: '6A9955' },
+      { token: 'number', foreground: 'B5CEA8' },
+      { token: 'delimiter', foreground: 'D4D4D4' },
+      { token: 'tag', foreground: '569CD6' },
+      { token: 'metatag', foreground: '569CD6' },
+      { token: 'attribute.name', foreground: '9CDCFE' },
+      { token: 'attribute.value', foreground: 'CE9178' },
+      { token: 'attribute.value.html', foreground: 'CE9178' },
+      { token: 'attribute.name.css', foreground: '9CDCFE' },
+      { token: 'attribute.value.css', foreground: 'CE9178' },
+      { token: 'attribute.value.number.css', foreground: 'B5CEA8' },
+      { token: 'attribute.value.unit.css', foreground: 'B5CEA8' },
+      { token: 'attribute.value.hex.css', foreground: 'CE9178' },
+      { token: 'tag.css', foreground: 'D7BA7D' },
+      { token: 'string.key.json', foreground: '9CDCFE' },
+      { token: 'string.value.json', foreground: 'CE9178' },
+      { token: 'number.json', foreground: 'B5CEA8' },
+      { token: 'keyword.json', foreground: '569CD6' },
+      { token: 'type.yaml', foreground: '569CD6' },
+      { token: 'keyword.md', foreground: '569CD6' },
+      { token: 'variable.md', foreground: '9CDCFE' },
+      { token: 'key.ini', foreground: '9CDCFE' },
+      { token: 'comment.ini', foreground: '6A9955' },
+    ],
+    colors: {
+      'editor.background': '#1F1F1F',
+      'editor.foreground': '#CCCCCC',
+      'editorLineNumber.foreground': '#6E7681',
+      'editorLineNumber.activeForeground': '#CCCCCC',
+      'editor.lineHighlightBackground': '#00000000',
+      'editor.lineHighlightBorder': '#282828',
+      'editor.selectionBackground': '#264F78',
+      'editor.inactiveSelectionBackground': '#3A3D41',
+      'editorIndentGuide.background1': '#404040',
+      'editorIndentGuide.activeBackground1': '#707070',
+      'editorGutter.background': '#1F1F1F',
+      'editorCursor.foreground': '#AEAFAD',
+      'editorWhitespace.foreground': '#E3E4E229',
+      'editorBracketMatch.border': '#888888',
+      'minimap.background': '#1F1F1F',
+      'scrollbarSlider.background': '#79797966',
+      'editorOverviewRuler.border': '#010409',
+      'focusBorder': '#0078D4',
+    },
+  });
   // JavaScript with VS Code-style colours, tokenised in the page (no language
   // worker needed): control keywords purple, calls brown, the rest as Light+.
   const js = monaco.languages.getLanguages().find(l => l.id === 'javascript');
@@ -123,6 +181,16 @@ async function setupMonaco(monaco) {
   }
   return monaco;
 }
+
+/* Day = VS Code Light Modern, night = VS Code Dark Modern (Dark+); switches live, also for an open editor. */
+const themeName = () => document.body.classList.contains('is-night') ? 'codelens-dark-modern' : 'codelens-light-modern';
+let themeNow = null;
+new MutationObserver(() => {
+  const t = themeName();
+  if (t === themeNow || !window.monaco || !monacoP) return;
+  themeNow = t; window.monaco.editor.setTheme(t);
+}).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+export const editorTheme = () => (editor ? themeNow || themeName() : null);
 
 /* ---- the panel ---- */
 let editor = null, lev = null, open = false, current = null;
@@ -149,7 +217,16 @@ async function showCode(p) {
   crumbs(p);
   const host = $('[data-editor]'), none = $('[data-binary]');
   const src = await sourceOf(p);
-  if (current !== p) return;
+  if (current !== p) { if (src.kind === 'media' && src.revoke) URL.revokeObjectURL(src.url); return; }
+  clearMedia(none);
+  const msgEl = $('[data-binary-msg]');
+  msgEl.hidden = false;
+  if (src.kind === 'media') {
+    host.hidden = true; none.hidden = false; msgEl.hidden = true; status(1, 1, src.media === 'video' ? 'Video' : 'Audio');
+    showMedia(none, src, p.split('/').pop());
+    $('[data-vscnote]').textContent = 'Read only · player';
+    return;
+  }
   if (src.kind !== 'text') {
     host.hidden = true; none.hidden = false; status(1, 1, src.kind === 'secret' ? 'Secret' : src.kind === 'binary' ? 'Binary' : 'Not available');
     $('[data-binary-msg]').textContent = src.kind === 'secret' ? 'Vault: contents never read. ' + src.message : src.message;
@@ -167,13 +244,14 @@ async function showCode(p) {
   const model = monaco.editor.createModel(code, id);
   if (!editor) {
     editor = monaco.editor.create(host, {
-      model, theme: 'codelens-light-modern', readOnly: true, domReadOnly: true, automaticLayout: true,
+      model, theme: themeName(), readOnly: true, domReadOnly: true, automaticLayout: true,
       fontFamily: "Consolas, 'Cascadia Mono', 'Courier New', 'Geist Mono', monospace", fontSize: 14, lineHeight: 19,
       minimap: { enabled: true, renderCharacters: false, scale: 1 }, scrollBeyondLastLine: false, renderLineHighlight: 'line',
       tabSize: 2, guides: { indentation: true }, scrollbar: { verticalScrollbarSize: 14, horizontalScrollbarSize: 10 },
       padding: { top: 4 }, contextmenu: false, quickSuggestions: false, occurrencesHighlight: 'off', links: false,
       renderValidationDecorations: 'off', stickyScroll: { enabled: false },
     });
+    themeNow = themeName();
     editor.onDidChangeCursorPosition(e => status(e.position.lineNumber, e.position.column, LANG(current)[1]));
   } else {
     const old = editor.getModel(); editor.setModel(model); old && old.dispose();
@@ -193,6 +271,7 @@ export function enterFocus(p, file) {
   $('.ws-focus__back').focus({ preventScroll: true });
 }
 export function exitFocus() {
+  clearMedia($('[data-binary]'));
   if (!open) return;
   open = false; el().hidden = true; document.body.classList.remove('is-focus');
   lev && lev.stop();

@@ -168,3 +168,27 @@ export async function getRawFile(owner: string, repo: string, ref: string, path:
   for (let i = 0; i < Math.min(buf.length, 8000); i++) if (buf[i] === 0) throw new ImportError("upstream", "Binary file.");
   return new TextDecoder().decode(buf);
 }
+
+/** Raw bytes of one public file, refusing anything over `max` bytes (audio / video for the player). */
+export async function getRawBytes(owner: string, repo: string, ref: string, path: string, max: number): Promise<Uint8Array> {
+  const url = `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${refPath(ref)}/${path.split("/").map(encodeURIComponent).join("/")}`;
+  const res = await timedFetch(url, { headers: { "User-Agent": "CodeLens-college-project" }, redirect: "error", cache: "no-store" }, 30_000);
+  if (res.status === 404) throw new ImportError("not-found", "File not found.");
+  if (!res.ok || !res.body) throw new ImportError("upstream", `GitHub returned ${res.status}.`);
+  const len = Number(res.headers.get("content-length") || 0);
+  if (len > max) { await res.body.cancel(); throw new ImportError("too-large", "This file is over the 10 MB player limit."); }
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > max) { await reader.cancel(); throw new ImportError("too-large", "This file is over the 10 MB player limit."); }
+    chunks.push(value);
+  }
+  const buf = new Uint8Array(total);
+  let o = 0;
+  for (const c of chunks) { buf.set(c, o); o += c.length; }
+  return buf;
+}

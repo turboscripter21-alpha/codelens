@@ -55,9 +55,17 @@ function classOf(mesh, m) {
    window palette, plus a building's own glassColor) on meshes that cast no shadow. Each pane
    gets a stable random value; the baker turns it into lit / dark and a warm tint per pane. */
 const LAMP = 'lamp';
-const GLASS = new Set(['#0584a8', '#38829e', '#f5edcd', '#fee11c', '#a9d3dc', '#e8b7c0']);
+const GLASS = new Set(['#0584a8', '#38829e', '#f5edcd', '#fee11c', '#a9d3dc', '#e8b7c0', '#9fd0e0']);
+// Colours that are only ever glass in the kit: these panes light up even when the mesh casts a
+// shadow (OfficeBlock's glass ground floor, shop fronts). Cream / warm tones are also wall colours,
+// so they count as windows only on thin, shadowless panes.
+const PURE_GLASS = new Set(['#0584a8', '#38829e', '#a9d3dc', '#9fd0e0']);
+const SIGN_GLOW = '#ffcc2b';   // the Vault's yellow trim and sign panels: lit at night like neon
 const hexOf = (m) => m.color ? '#' + m.color.getHexString() : '';
-function flatten(root, minPart = 0, glass = null) {
+/* flatten(root, minPart, glass, building, winMin): `building` turns on window detection (only
+   buildings get lit windows: car glass and fountain water stay dark). Level of detail drops parts
+   smaller than minPart, but window panes only below winMin, so big cities keep every lit window. */
+function flatten(root, minPart = 0, glass = null, building = false, winMin = minPart) {
   let pane = 0;
   root.updateMatrixWorld(true);
   const pb = new THREE.Box3(), ps = new THREE.Vector3();
@@ -66,15 +74,17 @@ function flatten(root, minPart = 0, glass = null) {
   const m4 = new THREE.Matrix4(), n3 = new THREE.Matrix3(), v = new THREE.Vector3();
   root.traverse((mesh) => {
     if (!mesh.isMesh || mesh.isInstancedMesh || !mesh.visible) return;
-    if (minPart > 0) { pb.setFromObject(mesh).getSize(ps); if (Math.max(ps.x, ps.y, ps.z) < minPart) return; }   // level of detail for big cities
     const m = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
     const cls = classOf(mesh, m);
+    // window seed: 0 = not a window; 2 = always lit (lamp bulbs, the Vault's neon trim)
+    const hx = hexOf(m), gl = glass instanceof Set && glass.has(hx);
+    const isWin = building && cls === 'lambert' && ((!mesh.castShadow && (GLASS.has(hx) || gl)) || PURE_GLASS.has(hx) || gl);
+    const neon = building && cls === 'lambert' && !mesh.castShadow && hx === SIGN_GLOW;
+    if (minPart > 0) { pb.setFromObject(mesh).getSize(ps); if (Math.max(ps.x, ps.y, ps.z) < (isWin || neon ? winMin : minPart)) return; }   // level of detail for big cities
     const key = cls + '|' + (mesh.castShadow ? 1 : 0) + (mesh.receiveShadow ? 1 : 0);
     let c = out.get(key);
     if (!c) { c = { cls, mat: m, cast: mesh.castShadow, receive: mesh.receiveShadow, pos: [], nrm: [], col: [], idx: [], uv: [], win: [] }; out.set(key, c); }
-    // window seed: 0 = not a window; lamp bulbs (unlit basic material) = 2 = always lit at night
-    const hx = hexOf(m), isWin = !mesh.castShadow && cls === 'lambert' && (GLASS.has(hx) || (glass && glass.has(hx)));
-    const seed = isWin ? 0.001 + ((Math.imul(++pane + 7, 2654435761) >>> 0) % 997) / 1000 : (cls === 'basic' && glass === LAMP ? 2 : 0);
+    const seed = isWin ? 0.001 + ((Math.imul(++pane + 7, 2654435761) >>> 0) % 997) / 1000 : (neon || (cls === 'basic' && glass === LAMP) ? 2 : 0);
     const geo = mesh.geometry, P = geo.attributes.position, Nn = geo.attributes.normal, UV = geo.attributes.uv;
     if (!P) return;
     m4.multiplyMatrices(inv, mesh.matrixWorld); n3.getNormalMatrix(m4);
@@ -95,6 +105,7 @@ function flatten(root, minPart = 0, glass = null) {
     idx: new Uint32Array(c.idx), uv: new Float32Array(c.uv), win: c.win.some(w => w) ? new Float32Array(c.win) : null }));
 }
 const flatCache = new Map();
+const glassOf = (b) => b.opts?.glassColor ? new Set(['#' + new THREE.Color(b.opts.glassColor).getHexString()]) : null;
 function flatOf(key, make, glass = null) {
   let f = flatCache.get(key);
   if (!f) { const g = make(); f = flatten(g, 0, glass); g.traverse(o => o.isMesh && o.geometry.dispose()); flatCache.set(key, f); }
@@ -162,9 +173,10 @@ class Baker {
             const w = c.win[i]; if (!w) continue;
             const o = (vo + i) * 3;
             if (w === 2) { glow[o] = 255; glow[o + 1] = 226; glow[o + 2] = 150; anyGlow = true; continue; }
-            const u = (w + ph) % 1;                              // per pane, per building: about 68% lit
-            if (u > 0.68) continue;
-            const tone = WIN_TONES[Math.floor(u * 97) % WIN_TONES.length], k = 0.55 + 0.45 * ((u * 13.7) % 1);
+            // per pane, per building: every pane glows; about 88% bright in a few warm / cool tones,
+            // the rest a dim lamp-behind-curtains glow, so every building reads clearly lit at night
+            const u = (w + ph) % 1;
+            const tone = WIN_TONES[Math.floor(u * 97) % WIN_TONES.length], k = u > 0.88 ? 0.42 : 0.72 + 0.28 * ((u * 13.7) % 1);
             glow[o] = tone[0] * k; glow[o + 1] = tone[1] * k; glow[o + 2] = tone[2] * k; anyGlow = true;
           }
         }
@@ -402,10 +414,11 @@ export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0
   const info = plan.buildings.map(() => ({ box: new THREE.Box3(), anchor: new THREE.Vector3(), h: 1 }));
   // Level of detail: big cities drop the smallest parts (bolts, rails, small panes) that vanish at city zoom.
   let sceneTris = 0, bigCity = false;
+  const dark = [], darkLo = [];
   const nB = plan.buildings.length, minPart = nB > 450 ? 0.9 : nB > 150 ? 0.5 : 0;
   function buildBuildings() {
     bGroup.traverse(o => o.isMesh && o.geometry.dispose()); bGroup.clear();
-    const bb = new Baker();
+    const bb = new Baker(); dark.length = 0;
     plan.buildings.forEach((b, i) => {
       const key = `b:${minPart}:${b.comp}:${JSON.stringify(b.opts)}:${colorBy}:${colorBy === 'none' ? '' : b.moduleType + b.language}`;
       let f = flatCache.get(key), size = flatCache.get(key + ':size');
@@ -413,10 +426,11 @@ export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0
         const g = makeBuilding(b, colorBy);
         const lb = new THREE.Box3().setFromObject(g);
         size = { x0: lb.min.x, x1: lb.max.x, z0: lb.min.z, z1: lb.max.z, h: lb.max.y };
-        f = flatten(g, minPart, b.opts?.glassColor ? new Set(['#' + new THREE.Color(b.opts.glassColor).getHexString()]) : null); g.traverse(o => o.isMesh && o.geometry.dispose());
+        f = flatten(g, minPart, glassOf(b), true, Math.min(minPart, 0.5)); g.traverse(o => o.isMesh && o.geometry.dispose());
         flatCache.set(key, f); flatCache.set(key + ':size', size);
       }
       bb.add(f, b.x, b.y, b.z, b.ry);
+      if (!f.some(c => c.win)) dark.push(b.id);   // a building with no lit pane at night (should stay empty)
       const rot = Math.abs(Math.sin(b.ry)) > 0.5;
       const hx = Math.max(Math.abs(size.x0), Math.abs(size.x1)), hz = Math.max(Math.abs(size.z0), Math.abs(size.z1));
       const ex = rot ? hz : hx, ez = rot ? hx : hz;
@@ -430,13 +444,15 @@ export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0
     sceneTris = tris(bGroup) + tris(staticG) + tris(detailG);
     bigCity = sceneTris > 350000;
     bLo.traverse(o => o.isMesh && o.geometry.dispose()); bLo.clear();
+    darkLo.length = 0;
     if (bigCity) {
       const lo = new Baker();
       plan.buildings.forEach((b) => {
         const key = `blo:${b.comp}:${JSON.stringify(b.opts)}:${colorBy}:${colorBy === 'none' ? '' : b.moduleType + b.language}`;
         let f = flatCache.get(key);
-        if (!f) { const g = makeBuilding(b, colorBy); f = flatten(g, 2.2); g.traverse(o => o.isMesh && o.geometry.dispose()); flatCache.set(key, f); }
+        if (!f) { const g = makeBuilding(b, colorBy); f = flatten(g, 2.2, glassOf(b), true, 0.5); g.traverse(o => o.isMesh && o.geometry.dispose()); flatCache.set(key, f); }
         lo.add(f, b.x, b.y, b.z, b.ry);
+        if (!f.some(c => c.win)) darkLo.push(b.id);
       });
       lo.build(bLo, 'buildings-lo');
       bLo.traverse(o => { if (o.isMesh) { o.castShadow = false; } });
@@ -728,7 +744,10 @@ export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0
     cam.position.copy(target0).addScaledVector(dir, dist); controls.target.copy(target0); controls.update();
   }
   function resize() { const w = host.clientWidth || 1, h = host.clientHeight || 1; renderer.setSize(w, h, false); renderer.domElement.style.width = '100%'; renderer.domElement.style.height = '100%'; cam.aspect = w / h; cam.updateProjectionMatrix(); requestRender(); }
-  const ro = new ResizeObserver(resize); ro.observe(host);
+  // While the host animates (files sidebar sliding), the canvas just stretches with CSS; the real
+  // resize + re-render happens once the size settles, so a big city is not redrawn every frame.
+  let roT = 0, roFirst = true;
+  const ro = new ResizeObserver(() => { if (roFirst) { roFirst = false; resize(); return; } clearTimeout(roT); roT = setTimeout(resize, 90); }); ro.observe(host);
   resize(); fitView();
 
   /* ---- day / night (FEATURES.dayNight): sun by day, moon + stars + lit windows + lamps by night */
@@ -903,6 +922,8 @@ export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0
     perf,
     focusOn(id, dist = 70) { const i = byId.get(id); if (i === undefined) return; const c = info[i].box.getCenter(new THREE.Vector3()); const dir = cam.position.clone().sub(controls.target).normalize(); controls.target.copy(c); cam.position.copy(c).addScaledVector(dir, dist); controls.update(); requestRender(); },
     resize, pause,
+    windowStats: () => ({ buildings: plan.buildings.length, withoutLitWindows: [...dark], withoutLitWindowsLowDetail: bigCity ? [...darkLo] : null }),
+    debugQuality(l) { applyQuality(l); requestRender(); },   // tests: show a governor level (3 = the low-detail moving view) on a still frame
     camState: () => ({ pos: cam.position.toArray(), target: controls.target.toArray(), dist: +cam.position.distanceTo(controls.target).toFixed(2) }),
     memInfo: () => ({ ...renderer.info.memory }),
     staticStats: () => staticStats,

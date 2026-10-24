@@ -204,6 +204,8 @@ export interface Project {
   files: ProjectFile[];
   /** path -> first lines (capped). Missing GitHub previews are fetched on demand. */
   previews: Record<string, string>;
+  /** zip / folder imports only: path -> audio / video file (<= 10 MB each), kept in this browser for the player. */
+  media?: Record<string, Blob>;
   stats: ProjectStats;
   warnings: string[];
   createdAt: number;
