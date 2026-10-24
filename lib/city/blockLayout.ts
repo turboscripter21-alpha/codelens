@@ -22,7 +22,6 @@ export const MIN_CELL = 22;
 export const PAD = 0.25; // district pad height
 export const SUB = 0.06; // sub-plot pad height
 export const MAX_BUILDINGS = 700;
-export const MAX_DISTRICT = 48;
 export const EXIT_LEN = 44;
 
 export type PlanTier = "tall" | "medium" | "small" | "vault";
@@ -243,106 +242,46 @@ function aggregate(files: ProjectFile[], max: number): { items: Item[]; aggregat
   return { items, aggregated: rest.length, memberOf };
 }
 
-interface Group { key: string; label: string; items: Item[] }
+interface Group { key: string; label: string; items: Item[]; root?: boolean }
 
-/** Folders -> districts. Big folders split into their sub-folders, then into numbered parts. */
+/** Folders -> districts: every folder that directly holds files is exactly one district (a big
+    folder is just a bigger district, never split into parts); folders holding only sub-folders get
+    none. The files at the repo root are the city hall district. */
 function districtsOf(items: Item[]): Group[] {
-  const out: Group[] = [];
-  const split = (prefix: string, list: Item[]) => {
-    if (list.length <= MAX_DISTRICT) {
-      out.push({ key: prefix, label: prefix ? prefix + "/" : "root files · city hall", items: list });
-      return;
-    }
-    const depth = prefix ? prefix.split("/").length : 0;
-    const direct = list.filter((it) => (it.dir ? it.dir.split("/").length : 0) <= depth);
-    const sub = new Map<string, Item[]>();
-    for (const it of list) {
-      if (direct.includes(it)) continue;
-      const k = it.dir.split("/").slice(0, depth + 1).join("/");
-      if (!sub.has(k)) sub.set(k, []);
-      sub.get(k)!.push(it);
-    }
-    if (sub.size === 0 || (sub.size === 1 && direct.length === 0 && [...sub.keys()][0] === prefix)) {
-      // A flat folder: numbered parts.
-      const sorted = [...list].sort((a, b) => (a.id < b.id ? -1 : 1));
-      for (let i = 0, n = 1; i < sorted.length; i += MAX_DISTRICT, n++)
-        out.push({ key: `${prefix}#${n}`, label: `${prefix ? prefix + "/" : "root"} (${n})`, items: sorted.slice(i, i + MAX_DISTRICT) });
-      return;
-    }
-    if (direct.length) {
-      const sorted = [...direct].sort((a, b) => (a.id < b.id ? -1 : 1));
-      for (let i = 0, n = 1; i < sorted.length; i += MAX_DISTRICT, n++) {
-        const many = sorted.length > MAX_DISTRICT;
-        out.push({
-          key: `${prefix}#files${many ? n : ""}`,
-          label: prefix ? `${prefix}/ (files${many ? " " + n : ""})` : "root files · city hall",
-          items: sorted.slice(i, i + MAX_DISTRICT),
-        });
-      }
-    }
-    for (const [k, l] of [...sub.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))) split(k, l);
-  };
-  // Top level: one district per top folder, root files on their own.
-  const top = new Map<string, Item[]>();
+  const by = new Map<string, Item[]>();
   for (const it of items) {
-    const k = it.dir ? it.dir.split("/")[0] : "";
-    if (!top.has(k)) top.set(k, []);
-    top.get(k)!.push(it);
+    if (!by.has(it.dir)) by.set(it.dir, []);
+    by.get(it.dir)!.push(it);
   }
-  for (const [k, l] of [...top.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))) split(k, l);
-  return out;
+  return [...by.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([k, list]) =>
+    k === "" ? { key: "", label: "root files · city hall", items: list, root: true } : { key: k, label: k + "/", items: list });
 }
 
-const subKeyOf = (it: Item, districtKey: string) => {
-  const base = districtKey.replace(/#.*$/, "");
-  const depth = base ? base.split("/").length : 0;
-  const parts = it.dir ? it.dir.split("/") : [];
-  return parts.length > depth ? parts.slice(0, depth + 1).join("/") : "";
-};
-
-type Slot = { kind: "b"; item: Item; group: string } | { kind: "green" } | { kind: "plaza" };
-
+type Slot = { kind: "b"; item: Item } | { kind: "green" } | { kind: "plaza" };
 interface BlockShape { cols: number; rows: number; w: number; d: number; slots: Slot[] }
 
-/** Order a district's lots: sub-folders stay together (sub-plots), tiers are shuffled by hash so they mix. */
+/** One folder's block: lots in back-to-back row pairs, tiers interleaved so towers are spread out;
+    a big folder grows into a bigger, roughly rectangular block. */
 function shapeBlock(g: Group, opts: { parks: boolean; plazas: boolean }): BlockShape {
-  const groups = new Map<string, Item[]>();
-  for (const it of g.items) {
-    const k = subKeyOf(it, g.key);
-    if (!groups.has(k)) groups.set(k, []);
-    groups.get(k)!.push(it);
+  const list = [...g.items].sort((a, b) => hash(a.id) - hash(b.id));
+  const big = list.filter((i) => i.tier === "tall" || i.tier === "medium");
+  const small = list.filter((i) => i.tier !== "tall" && i.tier !== "medium");
+  const mixed: Item[] = [];
+  while (big.length || small.length) {
+    if (small.length) mixed.push(small.shift()!);
+    if (big.length) mixed.push(big.shift()!);
+    if (small.length && hash(g.key + mixed.length) % 2) mixed.push(small.shift()!);
   }
-  const keys = [...groups.keys()].sort((a, b) => (a === "" ? -1 : b === "" ? 1 : a < b ? -1 : 1));
-  const slots: Slot[] = [];
-  for (const k of keys) {
-    const list = groups.get(k)!.sort((a, b) => hash(a.id) - hash(b.id));
-    // Keep the group's tallest building away from its neighbour: interleave big and small.
-    const big = list.filter((i) => i.tier === "tall" || i.tier === "medium");
-    const small = list.filter((i) => i.tier !== "tall" && i.tier !== "medium");
-    const mixed: Item[] = [];
-    while (big.length || small.length) {
-      if (small.length) mixed.push(small.shift()!);
-      if (big.length) mixed.push(big.shift()!);
-      if (small.length && hash(g.key + mixed.length) % 2) mixed.push(small.shift()!);
-    }
-    for (const item of mixed) slots.push({ kind: "b", item, group: k });
-  }
+  const slots: Slot[] = mixed.map((item) => ({ kind: "b", item }));
   const n = slots.length;
-  const greens = opts.parks ? (n >= 3 ? Math.max(1, Math.floor(n * 0.16)) : 0) : 0;
-  for (let i = 0; i < greens; i++) {
-    const at = (hash(g.key + ":g" + i) % (slots.length + 1));
-    slots.splice(at, 0, { kind: "green" });
-  }
+  const greens = opts.parks && n >= 3 ? Math.max(1, Math.floor(n * 0.16)) : 0;
+  for (let i = 0; i < greens; i++) slots.splice(hash(g.key + ":g" + i) % (slots.length + 1), 0, { kind: "green" });
   const total = slots.length + (opts.plazas && n >= 6 ? 1 : 0);
-  const cols = Math.max(1, Math.min(14, total <= 3 ? total : Math.ceil(Math.sqrt(total * 1.7))));
+  const cols = Math.max(1, Math.min(24, total <= 3 ? total : Math.ceil(Math.sqrt(total * 1.7))));
   const rows = Math.max(1, Math.ceil(total / cols));
-  if (total > slots.length) {
-    // Plaza (fountain + benches) on the lot nearest the block centre.
-    const centre = Math.min(slots.length, Math.floor((rows - 1) / 2) * cols + Math.floor(cols / 2));
-    slots.splice(centre, 0, { kind: "plaza" });
-  }
+  if (total > slots.length) slots.splice(Math.min(slots.length, Math.floor((rows - 1) / 2) * cols + Math.floor(cols / 2)), 0, { kind: "plaza" });
   const pairs = Math.ceil(rows / 2);
-  return { cols, rows, slots, w: cols * LOT_W + MARGIN * 2, d: rows * LOT_D + (pairs - 1) * FOOT + MARGIN * 2 };
+  return { cols, rows, slots, w: cols * LOT_W + 2 * MARGIN, d: rows * LOT_D + (pairs - 1) * FOOT + 2 * MARGIN };
 }
 
 type Fac = Pick<PlanBuilding, "comp" | "opts">;
@@ -407,19 +346,21 @@ export function planCity(project: Pick<Project, "name" | "files">, o: PlanOption
   const R = Math.max(1, Math.ceil(D / C));
   const cells: { c: number; r: number }[] = [];
   for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) cells.push({ c, r });
-  const cc = (C - 1) / 2, cr = (R - 1) / 2;
-  const ordered = [...cells].sort((a, b) => (a.c - cc) ** 2 + ((a.r - cr) * 1.3) ** 2 - ((b.c - cc) ** 2 + ((b.r - cr) * 1.3) ** 2) || a.r - b.r || a.c - b.c);
+  const cr = (R - 1) / 2;
+  // Districts in folder-path order (a parent, then its sub-folders, siblings together) laid along a
+  // serpentine walk of the grid, so each folder's sub-folder districts sit next to it and each other.
+  const snake = [...cells].sort((a, b) => a.r - b.r || (a.r % 2 ? b.c - a.c : a.c - b.c));
   const order = groups.map((_, i) => i).sort((a, b) => groups[b].items.length - groups[a].items.length || (groups[a].key < groups[b].key ? -1 : 1));
   const cellOf: { c: number; r: number }[] = new Array(D);
-  const rootIdx = groups.findIndex((g) => g.key === "" || g.key === "#files" || g.key.startsWith("#"));
-  const free = [...ordered];
+  const rootIdx = groups.findIndex((g) => g.root);
+  const free = [...snake];
   if (rootIdx >= 0 && C > 1) {
     // City hall plaza: east edge, middle row.
     const east = free.filter((x) => x.c === C - 1).sort((a, b) => Math.abs(a.r - cr) - Math.abs(b.r - cr))[0];
     cellOf[rootIdx] = east;
     free.splice(free.indexOf(east), 1);
   }
-  for (const i of order) if (!cellOf[i]) cellOf[i] = free.shift()!;
+  for (const i of groups.map((_, k) => k)) if (!cellOf[i]) cellOf[i] = free.shift()!;
   const parkCells = free; // leftover cells become parks
 
   const downtown = order[0];
@@ -428,8 +369,9 @@ export function planCity(project: Pick<Project, "name" | "files">, o: PlanOption
   const isArt = (line: number, c: number) => o.glowArtery !== false && line === arteryLine && c === dc.c;
   const arteryRows = new Set([arteryLine - 1, arteryLine].filter((r) => r >= 0 && r < R));
 
-  const colW = new Array(C).fill(MIN_CELL);
-  const rowD = new Array(R).fill(MIN_CELL);
+  const minCell = D > 60 ? 14 : MIN_CELL; // many tiny folders: tighter cells
+  const colW = new Array(C).fill(minCell);
+  const rowD = new Array(R).fill(minCell);
   groups.forEach((_, i) => {
     const { c, r } = cellOf[i];
     colW[c] = Math.max(colW[c], shapes[i].w);
@@ -475,7 +417,6 @@ export function planCity(project: Pick<Project, "name" | "files">, o: PlanOption
     const d: PlanDistrict = { key: g.key, label: g.label, kind: "district", cell: { c, r }, pad, buildings: [], subplots: [], greens: [], footpaths: [] };
     const pairs = Math.ceil(s.rows / 2);
     for (let p = 1; p < pairs; p++) d.footpaths.push({ z: +footZ(p).toFixed(2), x0: pad.x0 + 0.8, x1: pad.x1 - 0.8 });
-    const spans = new Map<string, Rect[]>();
     s.slots.forEach((slot, k) => {
       const row = Math.floor(k / s.cols), col = k % s.cols;
       const x = lx0 + col * LOT_W + LOT_W / 2, z = rowZ(row);
@@ -512,8 +453,7 @@ export function planCity(project: Pick<Project, "name" | "files">, o: PlanOption
       }
       const rank = (it as Item & { rank?: number }).rank ?? 0.5;
       const f = factoryFor(it, rank);
-      const sub = slot.group;
-      const y = sub && spansNeeded(s) ? PAD + SUB : PAD;
+      const y = PAD;
       const b: PlanBuilding = {
         id: it.id,
         name: it.name,
@@ -537,16 +477,7 @@ export function planCity(project: Pick<Project, "name" | "files">, o: PlanOption
       };
       d.buildings.push(buildings.length);
       buildings.push(b);
-      if (sub && spansNeeded(s)) {
-        if (!spans.has(sub)) spans.set(sub, []);
-        const list = spans.get(sub)!;
-        const rect = { x0: x - LOT_W / 2 + 0.35, x1: x + LOT_W / 2 - 0.35, z0: z - LOT_D / 2 + 0.35, z1: z + LOT_D / 2 - 0.35 };
-        const last = list[list.length - 1];
-        if (last && Math.abs(last.z0 - rect.z0) < 0.01 && Math.abs(last.x1 + 0.7 - rect.x0) < 0.01) last.x1 = rect.x1;
-        else list.push(rect);
-      }
     });
-    for (const [sub, rects] of spans) rects.forEach((rc, i) => d.subplots.push({ ...rc, y: PAD, label: i === 0 ? sub.split("/").pop() + "/" : undefined }));
     // Leftover pad around the lots: grass strips with trees (parks flag).
     if (opts.parks) {
       const lx1 = lx0 + s.cols * LOT_W, lz1 = lz0 + s.rows * LOT_D + (pairs - 1) * FOOT;
@@ -563,21 +494,25 @@ export function planCity(project: Pick<Project, "name" | "files">, o: PlanOption
 
   // ---- lamps along every street, trees around the city
   const lamps: CityPlan["lamps"] = [];
+  const lampStep = 16;
+  const sparse = D > 150; // hundreds of small folder districts: lamps on every other street segment keep the triangle budget
   for (let r = 0; r <= R; r++)
     for (let c = 0; c < C; c++) {
+      if (sparse && (r + c) % 2) continue;
       const half = isArt(r, c) ? ARTERY_HALF : ROAD_HALF;
       const a = XL[c] + APRON + 3, b = XL[c + 1] - APRON - 3;
-      for (let x = a; x <= b; x += 16) {
+      for (let x = a; x <= b; x += lampStep) {
         if (r > 0) lamps.push({ x: +x.toFixed(2), z: ZL[r] - half - 0.5, ry: 0 });
-        if (r < R) lamps.push({ x: +(x + 8 > b ? x : x + 8).toFixed(2), z: ZL[r] + half + 0.5, ry: Math.PI });
+        if (r < R) lamps.push({ x: +(x + lampStep / 2 > b ? x : x + lampStep / 2).toFixed(2), z: ZL[r] + half + 0.5, ry: Math.PI });
       }
     }
   for (let c = 0; c <= C; c++)
     for (let r = 0; r < R; r++) {
+      if (sparse && (r + c) % 2 === 0) continue;
       const a = ZL[r] + APRON + 3, b = ZL[r + 1] - APRON - 3;
-      for (let z = a; z <= b; z += 18) {
+      for (let z = a; z <= b; z += lampStep + 2) {
         if (c > 0) lamps.push({ x: XL[c] - ROAD_HALF - 0.5, z: +z.toFixed(2), ry: -Math.PI / 2 });
-        if (c < C) lamps.push({ x: XL[c] + ROAD_HALF + 0.5, z: +(z + 9 > b ? z : z + 9).toFixed(2), ry: Math.PI / 2 });
+        if (c < C) lamps.push({ x: XL[c] + ROAD_HALF + 0.5, z: +(z + lampStep / 2 + 1 > b ? z : z + lampStep / 2 + 1).toFixed(2), ry: Math.PI / 2 });
       }
     }
   const bounds: Rect = { x0: XL[0] - 12, x1: XL[C] + (o.gateway !== false ? EXIT_LEN : 12), z0: ZL[0] - 12, z1: ZL[R] + 12 };
@@ -629,10 +564,4 @@ export function planCity(project: Pick<Project, "name" | "files">, o: PlanOption
     fileToBuilding,
     stats: { files: project.files.length, buildings: buildings.length, aggregatedFiles: aggregated, districts: groups.length },
   };
-}
-
-/** Sub-plots only make sense when a block holds more than one folder. */
-function spansNeeded(s: BlockShape): boolean {
-  const groups = new Set(s.slots.filter((x) => x.kind === "b").map((x) => (x as { group: string }).group));
-  return groups.size > 1 || (groups.size === 1 && !groups.has(""));
 }

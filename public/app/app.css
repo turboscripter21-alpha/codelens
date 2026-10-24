@@ -429,3 +429,6 @@ body.is-night .ws-sum__stage { background: linear-gradient(#0E1420, #172033); }
 .ws-hbtn, .ws-key { white-space: nowrap; flex-shrink: 0; }
 .ws-hbtn kbd { white-space: nowrap; }
 @media (max-width: 1280px) { .ws-hbtn kbd { display: none; } }
+
+/* sidebar folder whose district is highlighted in the city */
+.ws-dirbtn.is-district { background: color-mix(in oklab, #ffc21a 34%, transparent); color: var(--sc-ink); }

@@ -70,7 +70,7 @@ test("many folders still fit under the building cap", () => {
 
 test("blocks mix tiers (not all tall towers on one side)", () => {
   const p = plan(300);
-  const mixed = p.districts.filter((d) => d.kind === "district" && d.buildings.length >= 8)
+  const mixed = p.districts.filter((d) => d.kind === "district" && d.buildings.length >= 4)
     .filter((d) => new Set(d.buildings.map((i) => p.buildings[i].tier)).size >= 2);
   assert.ok(mixed.length >= 1, "at least one mixed block");
 });
@@ -80,4 +80,37 @@ test("a lockfile is never the tallest building", () => {
   const lock = p.buildings.find((b) => b.id === p.fileToBuilding["package-lock.json"]);
   assert.ok(lock);
   assert.notEqual(lock.tier, "tall");
+});
+
+test("one district per folder that directly holds files; never numbered parts", () => {
+  for (const n of [12, 120, 900, 5000]) {
+    const p = plan(n);
+    const ds = p.districts.filter((d) => d.kind === "district");
+    for (const d of ds) assert.ok(!/\(\d+\)/.test(d.label), `${n}: numbered part ${d.label}`);
+    const keys = ds.map((d) => d.key);
+    assert.equal(new Set(keys).size, keys.length, `${n}: a folder split into several districts`);
+    // every building sits in the district of its own folder
+    for (const d of ds) for (const i of d.buildings) assert.equal(p.buildings[i].dir, d.key, `${n}: ${p.buildings[i].id} in ${d.key}`);
+    const dirs = new Set(p.buildings.map((b) => b.dir));
+    assert.equal(ds.length, dirs.size, `${n}: districts = folders with files`);
+    assert.equal(p.stats.districts, ds.length);
+  }
+});
+
+test("sub-folders are their own districts; folders with only sub-folders get none; root = city hall", () => {
+  const t = "export const v = 1;\n";
+  const paths = ["README.md", "src/index.ts", "src/components/a.tsx", "src/components/b.tsx", "src/components/forms/c.tsx", "src/utils/d.ts", "packages/x/lib/e.ts"];
+  for (let i = 0; i < 80; i++) paths.push(`src/big/f${i}.ts`);
+  const p = planCity(analyzeEntries(paths.map((path) => ({ path, bytes: t.length, text: t })), { name: "t", source: src }));
+  const ds = p.districts.filter((d) => d.kind === "district");
+  assert.deepEqual(ds.map((d) => d.key).sort(), ["", "packages/x/lib", "src", "src/big", "src/components", "src/components/forms", "src/utils"]);
+  assert.equal(ds.find((d) => d.key === "")!.label, "root files · city hall");
+  assert.equal(ds.find((d) => d.key === "src/components/forms")!.label, "src/components/forms/");
+  const big = ds.find((d) => d.key === "src/big")!;
+  assert.equal(big.buildings.length, 80, "a big folder is one bigger district");
+  const w = big.pad.x1 - big.pad.x0, d = big.pad.z1 - big.pad.z0;
+  assert.ok(w / d < 4 && d / w < 4, `roughly rectangular ${w}x${d}`);
+  // siblings sit next to each other: src/components and src/components/forms are adjacent cells
+  const a = ds.find((x) => x.key === "src/components")!.cell, b = ds.find((x) => x.key === "src/components/forms")!.cell;
+  assert.ok(Math.abs(a.c - b.c) + Math.abs(a.r - b.r) <= 2, "parent and sub-folder are near each other");
 });

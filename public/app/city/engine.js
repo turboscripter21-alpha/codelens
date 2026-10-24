@@ -354,10 +354,11 @@ export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0
   const grass = (r, seed, y) => {
     const w = +(r.x1 - r.x0).toFixed(1), d = +(r.z1 - r.z0).toFixed(1);
     if (w < 1 || d < 1) return;
-    place(`grass:${w}:${d}:${seed % 6}:${big ? 1 : 0}`, () => C.createGrassPatch({ width: w, depth: d, tufts: Math.min(big ? 24 : 60, Math.round(w * d / (big ? 30 : 14))), seed: seed % 6 }), (r.x0 + r.x1) / 2, (r.z0 + r.z1) / 2, 0, y);
+    place(`grass:${w}:${d}:${seed % 6}:${huge ? 2 : big ? 1 : 0}`, () => C.createGrassPatch({ width: w, depth: d, tufts: Math.min(huge ? 10 : big ? 24 : 60, Math.round(w * d / (huge ? 60 : big ? 30 : 14))), seed: seed % 6 }), (r.x0 + r.x1) / 2, (r.z0 + r.z1) / 2, 0, y);
   };
   // big cities: sparser greenery detail (trees, flowers, grass tufts) to keep the triangle count sane
   const big = plan.buildings.length > 150, flowersIn = {};
+  const huge = plan.districts.length > 150;   // hundreds of small folder districts: lighter greenery per block
   for (const d of plan.districts) {
     const p = d.pad;
     padBox(p.x0 + 0.3, p.x1 - 0.3, p.z0 + 0.3, p.z1 - 0.3); curbRing(p.x0 + 0.3, p.x1 - 0.3, p.z0 + 0.3, p.z1 - 0.3);
@@ -387,7 +388,7 @@ export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0
     if (FEATURES.parks) d.greens.forEach((g, i) => {
       const seed = SEED(d.key + i);
       grass(g, seed, PAD);
-      const area = (g.x1 - g.x0) * (g.z1 - g.z0), n = Math.max(1, Math.min(big ? 5 : 14, Math.round(area / (big ? 70 : 30))));
+      const area = (g.x1 - g.x0) * (g.z1 - g.z0), n = Math.max(1, Math.min(huge ? 2 : big ? 5 : 14, Math.round(area / (huge ? 160 : big ? 70 : 30))));
       const V = ['round', 'cone', 'tall'];
       for (let k = 0; k < n; k++) {
         const h = SEED(d.key + ':' + i + ':' + k);
@@ -682,25 +683,35 @@ export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0
   }
 
   /* ---- ground labels (HTML overlay, never painted on buildings) */
-  // long folder paths are shortened to their last two parts ("…/app/cache-tags/"); the full path is the tooltip
+  // long folder paths are shortened to their last three (or two) parts ("…/app/cache-tags/"); the full path is the tooltip
   const shortLabel = (t) => {
     if (t.length <= 26) return t;
     const m = t.match(/^(.*?)(\/?)(\s*\(.*\))?$/), parts = m[1].split('/').filter(Boolean);
-    return parts.length > 2 ? '…/' + parts.slice(-2).join('/') + m[2] + (m[3] || '') : t;
+    if (parts.length <= 2) return t;
+    const three = '…/' + parts.slice(-3).join('/') + m[2] + (m[3] || '');   // "…/react-dom/src/client/" reads better than "…/src/client/"
+    return parts.length > 3 && three.length <= 34 ? three : parts.length === 3 && t.length <= 34 ? t : '…/' + parts.slice(-2).join('/') + m[2] + (m[3] || '');
   };
   const LABELS = [];
+  // one name sign per folder district (its path); sorted by size so the biggest folders win overlaps
   for (const d of plan.districts) {
     if (d.kind === 'park') continue;
-    LABELS.push([d.label, (d.pad.x0 + d.pad.x1) / 2, d.pad.z1 - 1.2, 'big']);
+    LABELS.push([d.label, (d.pad.x0 + d.pad.x1) / 2, d.pad.z1 - 1.2, 'big', d]);
     for (const s of d.subplots) if (s.label) LABELS.push([s.label, (s.x0 + s.x1) / 2, s.z1 - 0.8, 'sub']);
   }
   if (FEATURES.gateway) LABELS.push(['Gateway → outside world', gw.x, gwZ + 6.5, 'gate']);
   if (artery) LABELS.push(['main artery · common path', (art.x0 + art.x1) / 2 - 10, art.z + 0.2, 'artery']);
-  const PRI = { gate: 0, artery: 1, big: 2, sub: 3 };
-  const labelEls = LABELS.map((L, i) => ({ L, i, n: L[3] === 'big' ? -(plan.districts.find(d => d.label === L[0])?.buildings.length || 0) : 0 }))
-    .sort((a, b) => PRI[a.L[3]] - PRI[b.L[3]] || a.n - b.n || a.i - b.i).slice(0, LIMITS.labels)
-    .map(({ L: [t, x, z, cls] }) => { const d = document.createElement('div'); d.className = 'glabel ' + (cls || ''); const sh = shortLabel(t); d.textContent = sh; d.title = t; overlay.appendChild(d); return { d, v: new THREE.Vector3(x, 0.4, z), w: sh.length * (cls === 'big' ? 7.6 : 6.6) + 14, gate: cls === 'gate' }; });
-  const pv = new THREE.Vector3();
+  const PRI = { gate: 0, big: 1, artery: 2, sub: 3 };   // folder signs before the artery tag
+  const labelEls = LABELS.map((L, i) => ({ L, i, n: L[3] === 'big' ? -L[4].buildings.length : 0 }))
+    .sort((a, b) => PRI[a.L[3]] - PRI[b.L[3]] || a.n - b.n || a.i - b.i).slice(0, Math.max(LIMITS.labels, 900))
+    .map(({ L: [t, x, z, cls, dist] }, rank) => {
+      const d = document.createElement('div'); d.className = 'glabel ' + (cls || ''); const sh = shortLabel(t); d.textContent = sh; d.title = t; overlay.appendChild(d);
+      // small folders only show their sign once you zoom in far enough that their block is wide on screen
+      return { d, v: new THREE.Vector3(x, 0.4, z), w: sh.length * (cls === 'big' ? 7.6 : 6.6) + 14, gate: cls === 'gate', key: dist ? dist.key : null, pad: dist ? dist.pad : null, top: rank < 14 };
+    });
+  const labelByKey = new Map(labelEls.filter(L => L.key !== null).map(L => [L.key, L]));
+  let onDistrict = null, districtRing = null;
+  const ringMat = new THREE.MeshBasicMaterial({ color: 0xffc21a, depthTest: false, transparent: true, opacity: 0.9, side: THREE.DoubleSide });
+  const pv = new THREE.Vector3(), pv2 = new THREE.Vector3();
   /* numbered "where to start" markers (HTML, above the roofs): [{ id, n, title }] */
   const marks = document.createElement('div'); marks.className = 'cc-marks'; host.appendChild(marks);
   let markEls = [];
@@ -732,15 +743,21 @@ export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0
     updateMarks();
     const od = showLabels ? 'block' : 'none'; if (overlay.style.display !== od) overlay.style.display = od; if (!showLabels) return;
     const w = host.clientWidth, h = host.clientHeight, placed = [];
-    for (const L of labelEls) {
+    let shown = 0;
+    const on = onDistrict && labelByKey.get(onDistrict);
+    for (const L of on ? [on, ...labelEls.filter(x => x !== on)] : labelEls) {
       pv.copy(L.v).project(cam);
-      let vis = pv.z < 1 && Math.abs(pv.x) < 1.05 && Math.abs(pv.y) < 1.05;
+      let vis = pv.z < 1 && Math.abs(pv.x) < 1.05 && Math.abs(pv.y) < 1.05 && shown < LIMITS.labels;
       let x = (pv.x + 1) / 2 * w; const y = (1 - pv.y) / 2 * h;
+      if (vis && L.pad && !L.top && L !== on) {   // zoom level: the block must be at least ~56px wide on screen
+        pv2.set(L.pad.x0, 0, L.v.z).project(cam); const xa = pv2.x; pv2.set(L.pad.x1, 0, L.v.z).project(cam);
+        if (Math.abs(pv2.x - xa) / 2 * w < 56) vis = false;
+      }
       if (vis && L.gate) x = Math.max(L.w / 2 + 6, Math.min(w - L.w / 2 - 6, x));   // the Gateway label slides in rather than hiding
       if (vis) {   // skip labels that would overlap one already shown (biggest folders win)
         const r = { x0: x - L.w / 2 - 3, x1: x + L.w / 2 + 3, y0: y - 10, y1: y + 10 };
         if (r.x0 < 2 || r.x1 > w - 2 || r.y0 < 2 || r.y1 > h - 2) vis = false;   // never clip at the canvas edge
-        else if (placed.some(p => r.x0 < p.x1 && r.x1 > p.x0 && r.y0 < p.y1 && r.y1 > p.y0)) vis = false; else placed.push(r);
+        else if (placed.some(p => r.x0 < p.x1 && r.x1 > p.x0 && r.y0 < p.y1 && r.y1 > p.y0)) vis = false; else { placed.push(r); shown++; }
       }
       const disp = vis ? 'block' : 'none'; if (L.disp !== disp) { L.d.style.display = disp; L.disp = disp; }
       if (vis) { const tf = `translate(-50%,-50%) translate(${x.toFixed(1)}px,${y.toFixed(1)}px)`; if (L.tf !== tf) { L.d.style.transform = tf; L.tf = tf; } }
@@ -964,6 +981,33 @@ export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0
       step();
       return true;
     },
+    /* highlight one folder district (sidebar folder click): outline its block, keep its sign on top, fly there */
+    setDistrict(key, fly = true) {
+      if (districtRing) { scene.remove(districtRing); districtRing.geometry.dispose(); districtRing = null; }
+      labelByKey.forEach(L => L.d.classList.remove('is-on'));
+      const d = key == null ? null : plan.districts.find(x => x.kind !== 'park' && x.key === key);
+      onDistrict = d ? d.key : null;
+      if (d) {
+        const p = d.pad, y = PAD + 0.12;
+        // a flat yellow frame around the block (one small mesh, only while a folder is picked)
+        const t = 0.9, sh = new THREE.Shape([[p.x0 - t, p.z0 - t], [p.x1 + t, p.z0 - t], [p.x1 + t, p.z1 + t], [p.x0 - t, p.z1 + t]].map(([x, z]) => new THREE.Vector2(x, -z)));
+        sh.holes.push(new THREE.Path([[p.x0 + t, p.z0 + t], [p.x0 + t, p.z1 - t], [p.x1 - t, p.z1 - t], [p.x1 - t, p.z0 + t]].map(([x, z]) => new THREE.Vector2(x, -z))));
+        const g = new THREE.ShapeGeometry(sh); g.rotateX(-Math.PI / 2); g.translate(0, y, 0);
+        districtRing = new THREE.Mesh(g, ringMat); districtRing.renderOrder = 5; scene.add(districtRing);
+        labelByKey.get(d.key)?.d.classList.add('is-on');
+        if (fly) {
+          const c = new THREE.Vector3((p.x0 + p.x1) / 2, 0, (p.z0 + p.z1) / 2), dist = Math.max(95, Math.max(p.x1 - p.x0, p.z1 - p.z0) * 2.6);
+          const dir = cam.position.clone().sub(controls.target).normalize();
+          const t0 = controls.target.clone(), p0 = cam.position.clone(), p1 = c.clone().addScaledVector(dir, dist);
+          const T = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 700, s0 = performance.now();
+          const step = () => { const k = T ? Math.min(1, (performance.now() - s0) / T) : 1, e = 1 - Math.pow(1 - k, 3); controls.target.lerpVectors(t0, c, e); cam.position.lerpVectors(p0, p1, e); controls.update(); labelsDirty = true; motionUntil = Math.max(motionUntil, performance.now() + 120); requestRender(); if (k < 1) requestAnimationFrame(step); };
+          step();
+        }
+      }
+      labelsDirty = true; requestRender();
+      return !!d;
+    },
+    get district() { return onDistrict; },
     focusOn(id, dist = 70) { const i = byId.get(id); if (i === undefined) return; const c = info[i].box.getCenter(new THREE.Vector3()); const dir = cam.position.clone().sub(controls.target).normalize(); controls.target.copy(c); cam.position.copy(c).addScaledVector(dir, dist); controls.update(); requestRender(); },
     resize, pause,
     windowStats: () => ({ buildings: plan.buildings.length, withoutLitWindows: [...dark], withoutLitWindowsLowDetail: bigCity ? [...darkLo] : null }),
@@ -989,7 +1033,7 @@ const css = `.cc-hud{position:absolute;left:10px;top:10px;z-index:4;pointer-even
 .cc-marks .cc-mark::after{content:'';position:absolute;left:50%;bottom:-8px;margin-left:-5px;border:5px solid transparent;border-top:6px solid #fff}
 .cc-marks .cc-mark:hover,.cc-marks .cc-mark:focus-visible{background:#fff;outline:2px solid #ffc21a}
 .cc-labels .glabel{position:absolute;left:0;top:0;white-space:nowrap;font:600 11px/1 'Geist Mono',ui-monospace,Menlo,Consolas,monospace;color:#2b2f36;background:rgba(255,255,255,.82);padding:3px 6px;border-radius:5px;box-shadow:0 1px 3px rgba(0,0,0,.12)}
-.cc-labels .glabel.big{font-size:12px;padding:4px 8px;background:rgba(34,38,45,.86);color:#fff}
+.cc-labels .glabel.big{font-size:12px;padding:4px 8px;background:rgba(34,38,45,.86);color:#fff}.cc-labels .glabel.big.is-on{background:#ffc21a;color:#2a2100;z-index:2}
 .cc-labels .glabel.sub{font-size:10px;font-weight:500;background:rgba(255,255,255,.7)}
 .cc-labels .glabel.gate{background:rgba(8,69,165,.88);color:#fff}.cc-labels .glabel.artery{background:rgba(255,210,58,.92);color:#3a2e00}
 .cc-tip{position:absolute;display:none;pointer-events:none;background:#22262d;color:#fff;padding:5px 8px;border-radius:7px;font-size:12px;z-index:3;max-width:360px}

@@ -152,7 +152,7 @@ const tree = (() => {
     n.files.push(f);
   }
   const TKEY = 'codelens.tree.' + (src.kind === 'github' ? src.owner + '/' + src.repo : src.kind + ':' + (src.name || project.name));
-  let open = new Set();
+  let open = new Set(), litDir = null;
   try { const v = JSON.parse(ls.get(TKEY) || '[]'); if (Array.isArray(v)) open = new Set(v.filter(x => typeof x === 'string').slice(0, 2000)); } catch { /* bad JSON */ }
   const save = () => ls.set(TKEY, JSON.stringify([...open].slice(0, 2000)));
   const cmp = (a, b) => a.localeCompare(b);
@@ -160,7 +160,7 @@ const tree = (() => {
     for (const k of [...n.dirs.keys()].sort(cmp)) {
       const c = n.dirs.get(k), isOpen = open.has(c.path);
       const li = document.createElement('li'); li.className = 'ws-dir'; li.style.setProperty('--d', d);
-      const bt = document.createElement('button'); bt.type = 'button'; bt.className = 'ws-dirbtn'; bt.dataset.dir = c.path; bt.title = c.path + '/';
+      const bt = document.createElement('button'); bt.type = 'button'; bt.className = 'ws-dirbtn' + (c.path === litDir ? ' is-district' : ''); bt.dataset.dir = c.path; bt.title = c.path + '/';
       bt.setAttribute('aria-expanded', String(isOpen)); bt.innerHTML = '<i class="ws-chev" aria-hidden="true"></i>'; bt.append(c.name);
       li.append(bt); frag.append(li);
       if (isOpen) rows(c, d + 1, frag);
@@ -186,6 +186,10 @@ const tree = (() => {
     if (open.has(dp)) { for (const o of [...open]) if (o === dp || o.startsWith(dp + '/')) open.delete(o); } else open.add(dp);
     save(); render();
     list.querySelector('[data-dir="' + CSS.escape(dp) + '"]')?.focus({ preventScroll: true });
+    // the folder's own district lights up in the city (folders with only sub-folders have none)
+    litDir = city.setDistrict?.(dp) ? dp : null;
+    list.querySelectorAll('.ws-dirbtn.is-district').forEach(x => x.classList.remove('is-district'));
+    if (litDir) list.querySelector('[data-dir="' + CSS.escape(dp) + '"]')?.classList.add('is-district');
   });
   $('[data-collapse-all]').addEventListener('click', () => { open.clear(); save(); render(); if (current) reveal(current); list.scrollTop = 0; });
   render();
