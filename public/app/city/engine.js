@@ -23,7 +23,7 @@ const N = 0, S = Math.PI, W = -Math.PI / 2;
 
 /* ------------------------------------------------------------------ buildings */
 export function makeBuilding(b, colorBy = 'none') {
-  const o = { ...b.opts, colorBy, moduleType: b.moduleType, language: b.language };
+  const o = { ...b.opts, colorBy, moduleType: b.moduleType, language: b.language, health: b.health };
   let g;
   switch (b.comp) {
     case 'tall': g = C.createTallBuilding(o); break;
@@ -420,7 +420,7 @@ export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0
     bGroup.traverse(o => o.isMesh && o.geometry.dispose()); bGroup.clear();
     const bb = new Baker(); dark.length = 0;
     plan.buildings.forEach((b, i) => {
-      const key = `b:${minPart}:${b.comp}:${JSON.stringify(b.opts)}:${colorBy}:${colorBy === 'none' ? '' : b.moduleType + b.language}`;
+      const key = `b:${minPart}:${b.comp}:${JSON.stringify(b.opts)}:${colorBy}:${colorBy === 'none' ? '' : b.moduleType + b.language + (b.health || '')}`;
       let f = flatCache.get(key), size = flatCache.get(key + ':size');
       if (!f) {
         const g = makeBuilding(b, colorBy);
@@ -448,7 +448,7 @@ export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0
     if (bigCity) {
       const lo = new Baker();
       plan.buildings.forEach((b) => {
-        const key = `blo:${b.comp}:${JSON.stringify(b.opts)}:${colorBy}:${colorBy === 'none' ? '' : b.moduleType + b.language}`;
+        const key = `blo:${b.comp}:${JSON.stringify(b.opts)}:${colorBy}:${colorBy === 'none' ? '' : b.moduleType + b.language + (b.health || '')}`;
         let f = flatCache.get(key);
         if (!f) { const g = makeBuilding(b, colorBy); f = flatten(g, 2.2, glassOf(b), true, 0.5); g.traverse(o => o.isMesh && o.geometry.dispose()); flatCache.set(key, f); }
         lo.add(f, b.x, b.y, b.z, b.ry);
@@ -701,8 +701,35 @@ export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0
     .sort((a, b) => PRI[a.L[3]] - PRI[b.L[3]] || a.n - b.n || a.i - b.i).slice(0, LIMITS.labels)
     .map(({ L: [t, x, z, cls] }) => { const d = document.createElement('div'); d.className = 'glabel ' + (cls || ''); const sh = shortLabel(t); d.textContent = sh; d.title = t; overlay.appendChild(d); return { d, v: new THREE.Vector3(x, 0.4, z), w: sh.length * (cls === 'big' ? 7.6 : 6.6) + 14, gate: cls === 'gate' }; });
   const pv = new THREE.Vector3();
+  /* numbered "where to start" markers (HTML, above the roofs): [{ id, n, title }] */
+  const marks = document.createElement('div'); marks.className = 'cc-marks'; host.appendChild(marks);
+  let markEls = [];
+  function setMarkers(list = []) {
+    marks.replaceChildren(); markEls = [];
+    for (const m of list) {
+      const i = byId.get(m.id); if (i === undefined) continue;
+      const b = info[i].box, d = document.createElement('button');
+      d.type = 'button'; d.className = 'cc-mark'; d.textContent = String(m.n); d.title = m.title || ''; d.dataset.markId = m.id;
+      d.setAttribute('aria-label', 'Start here ' + m.n + ': ' + (m.title || m.id));
+      d.addEventListener('click', (e) => { e.stopPropagation(); m.onClick && m.onClick(); });
+      marks.appendChild(d);
+      markEls.push({ d, v: new THREE.Vector3((b.min.x + b.max.x) / 2, b.max.y + 2.2, (b.min.z + b.max.z) / 2) });
+    }
+    labelsDirty = true; requestRender();
+  }
+  function updateMarks() {
+    if (!markEls.length) return;
+    const w = host.clientWidth, h = host.clientHeight;
+    for (const M of markEls) {
+      pv.copy(M.v).project(cam);
+      const vis = pv.z < 1 && Math.abs(pv.x) < 1.02 && Math.abs(pv.y) < 1.02;
+      const disp = vis ? 'flex' : 'none'; if (M.disp !== disp) { M.d.style.display = disp; M.disp = disp; }
+      if (vis) { const tf = `translate(-50%,-100%) translate(${((pv.x + 1) / 2 * w).toFixed(1)}px,${((1 - pv.y) / 2 * h).toFixed(1)}px)`; if (M.tf !== tf) { M.d.style.transform = tf; M.tf = tf; } }
+    }
+  }
   function updateLabels() {
     labelsDirty = false;
+    updateMarks();
     const od = showLabels ? 'block' : 'none'; if (overlay.style.display !== od) overlay.style.display = od; if (!showLabels) return;
     const w = host.clientWidth, h = host.clientHeight, placed = [];
     for (const L of labelEls) {
@@ -920,6 +947,23 @@ export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0
     fitView: () => { fitView(); placeSky(); requestRender(); },
     setNight, get night() { return nightTo === 1; },
     perf,
+    setMarkers,
+    /* smooth camera flight to a building (search, where-to-start); instant with reduced motion */
+    flyTo(id, dist = 60) {
+      const i = byId.get(id); if (i === undefined) return false;
+      const c = info[i].box.getCenter(new THREE.Vector3()); c.y = Math.min(c.y, info[i].box.min.y + 4);
+      const dir = cam.position.clone().sub(controls.target).normalize();
+      const t0 = controls.target.clone(), p0 = cam.position.clone(), p1 = c.clone().addScaledVector(dir, dist);
+      const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches, T = reduce ? 0 : 700, s0 = performance.now();
+      const step = () => {
+        const k = T ? Math.min(1, (performance.now() - s0) / T) : 1, e = 1 - Math.pow(1 - k, 3);
+        controls.target.lerpVectors(t0, c, e); cam.position.lerpVectors(p0, p1, e); controls.update();
+        labelsDirty = true; motionUntil = Math.max(motionUntil, performance.now() + 120); requestRender();
+        if (k < 1) requestAnimationFrame(step);
+      };
+      step();
+      return true;
+    },
     focusOn(id, dist = 70) { const i = byId.get(id); if (i === undefined) return; const c = info[i].box.getCenter(new THREE.Vector3()); const dir = cam.position.clone().sub(controls.target).normalize(); controls.target.copy(c); cam.position.copy(c).addScaledVector(dir, dist); controls.update(); requestRender(); },
     resize, pause,
     windowStats: () => ({ buildings: plan.buildings.length, withoutLitWindows: [...dark], withoutLitWindowsLowDetail: bigCity ? [...darkLo] : null }),
@@ -940,6 +984,10 @@ export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0
 /* styles for the overlay (from the demo's index.html) */
 const css = `.cc-hud{position:absolute;left:10px;top:10px;z-index:4;pointer-events:none;white-space:pre;font:600 11px/1.45 'Geist Mono',ui-monospace,Menlo,Consolas,monospace;color:#d8ffe0;background:rgba(10,14,20,.78);padding:6px 9px;border-radius:7px}
 .cc-labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.cc-marks{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.cc-marks .cc-mark{position:absolute;left:0;top:0;pointer-events:auto;display:flex;align-items:center;justify-content:center;width:26px;height:26px;margin-top:-6px;border-radius:50%;border:2px solid #fff;background:#ffc21a;color:#12161c;font:700 13px/1 'Geist Mono',ui-monospace,Menlo,Consolas,monospace;box-shadow:0 2px 6px rgba(0,0,0,.28);cursor:pointer;padding:0}
+.cc-marks .cc-mark::after{content:'';position:absolute;left:50%;bottom:-8px;margin-left:-5px;border:5px solid transparent;border-top:6px solid #fff}
+.cc-marks .cc-mark:hover,.cc-marks .cc-mark:focus-visible{background:#fff;outline:2px solid #ffc21a}
 .cc-labels .glabel{position:absolute;left:0;top:0;white-space:nowrap;font:600 11px/1 'Geist Mono',ui-monospace,Menlo,Consolas,monospace;color:#2b2f36;background:rgba(255,255,255,.82);padding:3px 6px;border-radius:5px;box-shadow:0 1px 3px rgba(0,0,0,.12)}
 .cc-labels .glabel.big{font-size:12px;padding:4px 8px;background:rgba(34,38,45,.86);color:#fff}
 .cc-labels .glabel.sub{font-size:10px;font-weight:500;background:rgba(255,255,255,.7)}

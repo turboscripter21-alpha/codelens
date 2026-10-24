@@ -18,6 +18,10 @@ export type ChatBody = {
   context?: string;
   source?: string;
   history?: ChatTurn[];
+  /** "building": the selected file answers in the first person; "narrator": summary slideshow narration. */
+  persona?: "building" | "narrator";
+  /** "Test key": a tiny request that only checks the key works. */
+  test?: boolean;
 };
 
 /** Google API keys: "AIza" + 35 url-safe chars. Accept a slightly wider shape, reject anything odd. */
@@ -47,6 +51,8 @@ export function parseBody(raw: unknown): ChatBody | null {
     context: str(r.context, MAX.context),
     source: str(r.source, MAX.source),
     history,
+    persona: r.persona === "building" || r.persona === "narrator" ? r.persona : undefined,
+    test: r.test === true || undefined,
   };
 }
 
@@ -62,7 +68,13 @@ export const SYSTEM = [
 /** Strip the delimiter from untrusted text so it cannot close the data block early. */
 const fence = (s: string) => s.replace(/<\/?repo-data>/gi, "[repo-data]");
 
+const PERSONA = {
+  building: " You are speaking AS the selected file (a building in the city): answer in the first person, e.g. \"I'm auth.ts, I check who is logged in\". Stay friendly and concrete; refer to real function names from the data.",
+  narrator: " You narrate one slide of a guided tour of the project: 2-4 short sentences on what this file does and how it fits the flow from the entry file. No headings, no lists.",
+};
+
 export function buildRequest(b: ChatBody) {
+  if (b.test) return { contents: [{ role: "user", parts: [{ text: "Reply with the single word OK." }] }], generationConfig: { temperature: 0, maxOutputTokens: 5 } };
   const data = [
     b.project ? `Project: ${b.project}` : "",
     b.file ? `Selected file: ${b.file}` : "",
@@ -74,7 +86,7 @@ export function buildRequest(b: ChatBody) {
     { role: "user", parts: [{ text: (data ? `<repo-data>\n${fence(data)}\n</repo-data>\n\n` : "") + `Question: ${b.question}` }] },
   ];
   return {
-    systemInstruction: { parts: [{ text: SYSTEM }] },
+    systemInstruction: { parts: [{ text: SYSTEM + (b.persona ? PERSONA[b.persona] : "") }] },
     contents,
     generationConfig: { temperature: 0.4, maxOutputTokens: 700 },
   };

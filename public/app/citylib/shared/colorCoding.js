@@ -2,7 +2,7 @@
  * colorCoding.js: OPTIONAL colour-coding for buildings (default OFF).
  *
  * Every building factory accepts:
- *   { colorBy: 'none' | 'moduleType' | 'language', moduleType, language }
+ *   { colorBy: 'none' | 'moduleType' | 'language' | 'health', moduleType, language, health }
  * - 'none' (default) keeps the natural low-poly palette.
  * - 'moduleType' tints the main walls by what the code does (core, api, ui …).
  * - 'language'   tints the main walls by the file's language (ts, js, py …).
@@ -33,10 +33,15 @@ export const LANGUAGE_COLORS = {
   other: '#8f949b',
 };
 
+/** Code health (static complexity score from the analyzer). */
+export const HEALTH_COLORS = { good: '#3fae3a', warn: '#f2c40f', bad: '#e0473a', none: '#b9bdc3' };
+const HEALTH_LABEL = { good: 'healthy', warn: 'watch', bad: 'complex', none: 'not code' };
+
 /** Legend entries for page UI: [{key, color}] */
 export const LEGENDS = {
   moduleType: ['core', 'utility', 'api', 'data', 'ui', 'config', 'test'].map(k => ({ key: k === 'data' ? 'data / db' : k, color: MODULE_TYPE_COLORS[k] })),
   language: Object.entries(LANGUAGE_COLORS).map(([key, color]) => ({ key, color })),
+  health: ['good', 'warn', 'bad', 'none'].map(k => ({ key: HEALTH_LABEL[k], level: k, color: HEALTH_COLORS[k] })),
 };
 export const legendFor = (colorBy) => LEGENDS[colorBy] || [];
 
@@ -52,8 +57,9 @@ export function codeColors(o = {}) {
   let c, key;
   if (by === 'moduleType') { key = (o.moduleType || 'utility').toLowerCase(); c = MODULE_TYPE_COLORS[key] ?? MODULE_TYPE_COLORS.config; }
   else if (by === 'language') { key = (o.language || 'other').toLowerCase().replace(/^\./, ''); key = { tsx: 'ts', jsx: 'js', mjs: 'js', scss: 'css' }[key] ?? key; c = LANGUAGE_COLORS[key] ?? LANGUAGE_COLORS.other; }
+  else if (by === 'health') { key = o.health || 'none'; c = HEALTH_COLORS[key] ?? HEALTH_COLORS.none; }
   else return null;
   return { wall: c, trim: shade(c, -0.35), light: shade(c, 0.45), dark: shade(c, -0.55), key, by };
 }
 /** Metadata to store in userData.codecity */
-export const codeMeta = (o = {}) => ({ colorBy: o.colorBy || 'none', moduleType: o.moduleType, language: o.language });
+export const codeMeta = (o = {}) => ({ colorBy: o.colorBy || 'none', moduleType: o.moduleType, language: o.language, health: o.health });

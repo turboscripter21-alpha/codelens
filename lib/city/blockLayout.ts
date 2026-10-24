@@ -26,6 +26,13 @@ export const MAX_DISTRICT = 48;
 export const EXIT_LEN = 44;
 
 export type PlanTier = "tall" | "medium" | "small" | "vault";
+export type HealthLevel = "good" | "warn" | "bad";
+const HEALTH_RANK: Record<HealthLevel, number> = { good: 0, warn: 1, bad: 2 };
+function worstHealth(files: ProjectFile[]): HealthLevel | undefined {
+  let w: HealthLevel | undefined;
+  for (const f of files) { const lv = f.health?.lv; if (lv && (!w || HEALTH_RANK[lv] > HEALTH_RANK[w])) w = lv; }
+  return w;
+}
 export type ModuleType = "core" | "utility" | "api" | "data" | "ui" | "config" | "test";
 
 export interface Rect { x0: number; x1: number; z0: number; z1: number }
@@ -50,6 +57,8 @@ export interface PlanBuilding {
   lot: { w: number; d: number };
   moduleType: ModuleType;
   language: string;
+  /** Code health level (code files; blocks take their worst member). */
+  health?: HealthLevel;
   score: number;
   members?: string[];
   /** Door on the sidewalk / footpath in front, plus the walk to the street. */
@@ -159,6 +168,7 @@ interface Item {
   tier: PlanTier;
   moduleType: ModuleType;
   language: string;
+  health?: HealthLevel;
 }
 
 /** Above MAX_BUILDINGS, the smallest files of each folder are merged into "block" buildings. */
@@ -203,6 +213,7 @@ function aggregate(files: ProjectFile[], max: number): { items: Item[]; aggregat
     tier: f.secret ? "vault" : s >= th.tall ? "tall" : s >= th.medium ? "medium" : "small",
     moduleType: moduleTypeOf(f),
     language: languageKey(f.language, f.path),
+    health: f.health?.lv,
   }));
   const byDir = new Map<string, ProjectFile[]>();
   for (const { f } of rest) {
@@ -225,6 +236,7 @@ function aggregate(files: ProjectFile[], max: number): { items: Item[]; aggregat
         tier: "small",
         moduleType: "config",
         language: "other",
+        health: worstHealth(part),
       });
     }
   }
@@ -516,6 +528,7 @@ export function planCity(project: Pick<Project, "name" | "files">, o: PlanOption
         lot: { w: LOT_W - 0.8, d: LOT_D - 0.8 },
         moduleType: it.moduleType,
         language: it.language,
+        health: it.health,
         score: it.score,
         members: it.members,
         door,

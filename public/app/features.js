@@ -18,6 +18,12 @@ export const FEATURES = {
   tooltip: true,         // hover tooltip with the file name
   shadows: true,         // sun shadows
   dayNight: true,        // day / night toggle: sun + warm sky by day; moon, stars, lit windows and lamp glow at night
+  healthColors: true,    // "Colour: code health" mode: green / yellow / red by the analyzer's complexity score, plus the score in the panel
+  buildingChat: true,    // double-click a building: it introduces itself and answers questions (Gemini optional)
+  summary: true,         // Summary button: a mini city builds file by file like a slideshow, starting from the entry file
+  whereToStart: true,    // numbered markers + list of ~5 files to read first
+  search: true,          // Ctrl+K or "/" search over files, paths, functions and exports
+  accounts: true,        // email sign-in (6-digit code) or guest, and the History panel
 };
 /* Caps that keep big repos smooth. */
 export const LIMITS = { bikes: 36, cars: 8, trucks: 6, buses: 4, arcs: 30, labels: 80 };

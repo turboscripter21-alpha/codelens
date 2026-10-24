@@ -45,6 +45,12 @@
     $('[data-chip]').textContent = 'Import failed';
     var back = $('[data-back]'); back.textContent = 'Back to import';
   }
+  // signed-in users: add the import to their history (contents never sent); guests get the note in the workspace
+  function saveHistory(project) {
+    var done = function (r) { try { sessionStorage.setItem('codelens.saved', JSON.stringify({ saved: !!(r && r.saved) })); } catch (e) { /* private mode */ } };
+    if (!CL.recordHistory) return Promise.resolve();
+    return Promise.race([CL.recordHistory(project), new Promise(function (r) { setTimeout(function () { r({ saved: false }); }, 5000); })]).then(done, function () { done(null); });
+  }
   var wait = function (ms) { return new Promise(function (r) { setTimeout(r, reduce ? 0 : ms); }); };
 
   CL.getPending().catch(function () { return null; }).then(function (p) {
@@ -92,7 +98,7 @@
         var tall = plan.buildings.filter(function (b) { return !b.members; }).sort(function (a, b) { return b.score - a.score; })[0];
         var f = tall && project.files.find(function (x) { return x.path === tall.id; });
         setDetail(4, f ? 'Tallest: <code>' + esc(base(f.path)) + '</code>, ' + f.lines.toLocaleString() + ' lines · ' + plan.stats.buildings.toLocaleString() + ' buildings' : plan.stats.buildings + ' buildings', true);
-        return CL.saveProject(project);
+        return CL.saveProject(project).then(function () { return saveHistory(project); });
       }).then(function () { return CL.clearPending(); }).then(function () {
         target = 1; setStep(5); fileEl.textContent = 'Done. Opening the workspace.';
         return wait(700);

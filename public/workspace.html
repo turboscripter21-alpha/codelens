@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="codelens.css">
 <link rel="stylesheet" href="app/app.css">
 <link rel="stylesheet" href="app/wire.css">
+<link rel="stylesheet" href="app/account.css" data-account-css>
 <script type="importmap">{ "imports": { "three": "./app/vendor/three/three.module.js", "three/addons/": "./app/vendor/three/addons/" } }</script>
 <script src="app/codelens-bridge.js"></script>
 </head>
@@ -18,6 +19,7 @@
   <button type="button" class="ws-side" data-sidetoggle aria-controls="ws-tree" aria-expanded="true" aria-keyshortcuts="Control+B" title="Hide the files sidebar (Ctrl+B)"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path class="ws-side__pane" d="M3.4 4.4h4.1v11.2H3.4z"/><path d="M7.5 3.8v12.4" stroke="currentColor" stroke-width="1.6"/></svg><span class="cl-sr" data-side-label>Hide files</span></button>
   <p class="ws-proj"><span class="ws-proj__name"></span><span class="ap-chip" data-projchip></span></p>
   <label class="ws-ask"><span class="cl-sr">Ask anything</span><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M13 13l4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><input type="text" placeholder="Ask anything about this project" aria-describedby="ws-proto" data-ask enterkeyhint="send" maxlength="2000"><kbd>Enter</kbd></label>
+  <button type="button" class="ws-hbtn ws-searchbtn" data-search-open title="Search files and functions (Ctrl+K or /)" aria-keyshortcuts="Control+K /" hidden><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M13 13l4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>Search</span><kbd>Ctrl K</kbd></button>
   <button type="button" class="ws-key" data-key title="Paste your free Gemini API key (kept in this browser only)"><i aria-hidden="true"></i><span data-key-label>Add Gemini key</span></button>
   <button type="button" class="ws-theme" data-theme aria-pressed="false" title="Switch to night"><span class="ws-theme__ico" aria-hidden="true"></span><span data-theme-label>Day</span></button>
   <button type="button" class="ws-help" data-intro-open aria-label="What do the buildings mean?" title="What do the buildings mean?">?</button>
@@ -44,13 +46,18 @@
     <div class="ws-tabs" role="tablist" aria-label="View">
       <button role="tab" id="tab-city" aria-controls="view-city" aria-selected="true">City</button>
       <button role="tab" id="tab-code" aria-controls="view-code" aria-selected="false">Code <code data-tabfile></code></button>
-      <span class="ws-tabs__opts"><button type="button" data-colorby title="Colour-code the buildings">Colour: none</button><button type="button" data-labels title="Show or hide folder labels">Folder labels: on</button></span>
+      <span class="ws-tabs__opts"><button type="button" data-colorby title="Colour-code the buildings">Colour: none</button><button type="button" data-labels title="Show or hide folder labels">Folder labels: on</button><button type="button" data-start-open aria-pressed="false" title="The ~5 files to read first" hidden>Where to start</button><button type="button" class="ws-sumbtn" data-summary-open title="Watch a small city build up, file by file, from the entry file" hidden>Summary</button></span>
     </div>
 
     <section class="ws-view ws-city" id="view-city" role="tabpanel" aria-labelledby="tab-city">
       <div class="ws-stage">
         <div class="ws-cityhost" data-city role="img" aria-label="The city built from this project. Orange arcs run to the files the selected file uses, blue arcs to the files that use it."></div>
         <p class="ws-citynote" data-citynote hidden></p>
+        <aside class="ws-start" data-startpanel aria-labelledby="start-h" hidden>
+          <p class="ws-start__h"><span id="start-h">Where to start</span><button type="button" class="ws-start__x" data-start-close aria-label="Close where to start">&times;</button></p>
+          <p class="ws-start__p">Read these files in this order. Click one to fly there; the numbers float above the buildings.</p>
+          <ol class="ws-start__list" data-startlist></ol>
+        </aside>
       </div>
       <p class="ws-legend"><span class="k k--sel"></span>selected <span class="k k--uses"></span>uses <span class="k k--by"></span>used by <span class="ws-colorlegend" data-colorlegend></span><em data-legendnote>Click a building to talk to it. Double-click to open its code. Scroll to zoom, right-drag or Shift+drag to pan, drag to rotate.</em></p>
     </section>
@@ -87,6 +94,12 @@
         </div>
         <div class="ws-float__canvas" data-lev role="img" aria-label="The selected building, on its own"></div>
         <p class="ws-float__cap"><code data-ftitle></code><span>The same building as in the city, lifted out of its plot.</span></p>
+        <div class="ws-bchat" data-bchat hidden aria-label="Chat with this building">
+          <ol class="ws-bchat__log" data-bchat-log aria-live="polite"></ol>
+          <div class="ws-bchat__chips" data-bchat-chips></div>
+          <form class="ws-bchat__form" data-bchat-form><label class="cl-sr" for="bchat-in">Ask this building</label><input id="bchat-in" type="text" data-bchat-input maxlength="2000" enterkeyhint="send" autocomplete="off" placeholder="Ask me anything"><button type="submit" class="ws-follow__send">Ask</button></form>
+          <p class="ws-bchat__note" data-bchat-note></p>
+        </div>
       </div>
     </section>
   </main>
@@ -96,6 +109,7 @@
     <div class="ws-who">
       <code class="ws-who__path" data-path></code>
       <p class="ws-who__meta"><span data-tier></span><span data-type></span><span data-lines></span><span data-extra data-langname></span></p>
+      <p class="ws-health" data-health hidden></p>
       <p class="ws-who__plain" data-plain></p>
     </div>
     <figure class="ws-say">
@@ -111,15 +125,54 @@
   </aside>
 </div>
 
-<dialog class="ws-dlg" data-keydlg aria-labelledby="keydlg-h">
-  <form method="dialog" class="ws-dlg__card" data-keyform>
-    <h2 id="keydlg-h">Add your free Gemini key</h2>
-    <p>CodeLens answers questions with Google Gemini (model <code>gemini-flash-lite-latest</code>). Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">aistudio.google.com/apikey</a> and paste it here.</p>
-    <label class="ws-dlg__field"><span>Gemini API key</span><input type="password" autocomplete="off" spellcheck="false" placeholder="AIza..." data-keyinput maxlength="80"></label>
-    <p class="ws-dlg__fine">The key stays in this browser (localStorage). It is sent with each question to this site's own proxy, which forwards it to Google and never stores or logs it. Your file's code is sent to Gemini only when you ask.</p>
+<dialog class="ws-intro ws-keyintro" data-keydlg aria-labelledby="keydlg-h">
+  <form method="dialog" class="ws-intro__card" data-keyform novalidate>
+    <button type="button" class="ws-intro__x" data-keyskip aria-label="Close">&times;</button>
+    <p class="ws-intro__eyebrow">Optional · free · 1 minute</p>
+    <h2 id="keydlg-h">Let your buildings talk with a free Gemini key</h2>
+    <p class="ws-key__lead" data-keylead>Without a key, CodeLens explains files from their real stats. Add your own free Google Gemini key and every building can answer questions in plain words (model <code>gemini-flash-lite-latest</code>).</p>
+    <ol class="ws-keysteps">
+      <li><b>Open Google AI Studio</b> and sign in with any Google account.</li>
+      <li>Click <b>Create API key</b> (pick a project, or let it make one).</li>
+      <li><b>Copy the key</b> (it starts with <code>AIza</code>) and paste it below.</li>
+    </ol>
+    <p class="ws-keylinks"><a class="ws-dlg__go ws-keylinks__go" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" data-keystudio>Get a free key in AI Studio<span aria-hidden="true"> ↗</span></a><a class="ws-keylinks__alt" href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer">Google Cloud console</a></p>
+    <label class="ws-dlg__field"><span>Gemini API key</span>
+      <span class="ws-keyrow"><input type="password" autocomplete="off" spellcheck="false" placeholder="AIza..." data-keyinput maxlength="80"><button type="button" class="ws-keyrow__eye" data-keyshow aria-pressed="false" aria-label="Show key">Show</button></span></label>
+    <p class="ws-keystatus" data-keystatus role="status" hidden></p>
     <p class="ws-dlg__err" data-keyerr hidden></p>
-    <div class="ws-dlg__btns"><button type="button" class="ws-dlg__ghost" data-keyremove>Remove key</button><button type="button" class="ws-dlg__ghost" data-keycancel>Cancel</button><button type="submit" class="ws-dlg__go" value="save">Save key</button></div>
+    <div class="ws-dlg__btns ws-key__btns"><button type="button" class="ws-dlg__ghost" data-keyremove>Remove key</button><span class="ws-key__sp"></span><button type="button" class="ws-dlg__ghost" data-keyskip>Skip</button><button type="button" class="ws-dlg__ghost" data-keytest>Test key</button><button type="submit" class="ws-dlg__go" value="save">Save key</button></div>
+    <p class="ws-intro__fine">Your key stays in your browser, sent only with your questions. This site's proxy forwards it to Google and never stores or logs it. Reopen this any time with the key button at the top.</p>
   </form>
+</dialog>
+
+<dialog class="ws-search" data-searchdlg aria-label="Search files and functions">
+  <div class="ws-search__card">
+    <label class="ws-search__row"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M13 13l4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span class="cl-sr">Search</span><input type="text" data-searchinput role="combobox" aria-expanded="true" aria-controls="search-list" aria-autocomplete="list" autocomplete="off" spellcheck="false" maxlength="120" placeholder="Search files, paths, functions and exports"><kbd>Esc</kbd></label>
+    <ul class="ws-search__list" id="search-list" role="listbox" data-searchlist></ul>
+    <p class="ws-search__hint" data-searchhint><kbd>↑</kbd><kbd>↓</kbd> to move · <kbd>Enter</kbd> to fly to the building · <kbd>Esc</kbd> to close</p>
+  </div>
+</dialog>
+
+<dialog class="ws-intro ws-sum" data-sumdlg aria-labelledby="sum-h">
+  <div class="ws-intro__card ws-sum__card">
+    <button type="button" class="ws-intro__x" data-sum-close aria-label="Close summary">&times;</button>
+    <p class="ws-intro__eyebrow" data-sum-step>Summary</p>
+    <h2 id="sum-h" data-sum-title>How this project fits together</h2>
+    <div class="ws-sum__stage" data-sumcity role="img" aria-label="A small city being built, one file per slide"></div>
+    <ol class="ws-sum__dots" data-sum-dots aria-hidden="true"></ol>
+    <p class="ws-sum__text" data-sum-text></p>
+    <p class="ws-sum__ai" data-sum-ai hidden></p>
+    <div class="ws-sum__ctl">
+      <button type="button" class="ws-dlg__ghost" data-sum-prev>&larr; Prev</button>
+      <button type="button" class="ws-dlg__ghost" data-sum-play aria-pressed="false">Autoplay</button>
+      <button type="button" class="ws-dlg__ghost" data-sum-ai-btn title="Explain this slide with Gemini (uses your key)">Explain with Gemini</button>
+      <span class="ws-key__sp"></span>
+      <button type="button" class="ws-dlg__ghost" data-sum-open>Open in city</button>
+      <button type="button" class="ws-dlg__go" data-sum-next>Next &rarr;</button>
+    </div>
+    <p class="ws-intro__fine" data-sum-fine>Built from the import graph and the code's own functions, no AI. "Explain with Gemini" sends this one file to Gemini with your key.</p>
+  </div>
 </dialog>
 
 <dialog class="ws-intro" data-intro aria-labelledby="intro-h">
@@ -131,10 +184,11 @@
       <li><i class="ii ii--h" aria-hidden="true"></i><b>Height = lines of code.</b> Taller buildings have more code.</li>
       <li><i class="ii ii--f" aria-hidden="true"></i><b>Footprint = how much the file matters</b>: bigger plots for files many others import.</li>
       <li><i class="ii ii--d" aria-hidden="true"></i><b>Districts = folders.</b> Files in the same folder share a block; small files are grouped into small blocks.</li>
-      <li><i class="ii ii--c" aria-hidden="true"></i><b>Colour</b>: off by default; use <em>Colour</em> above the city to tint by module type or language (legend under the city).</li>
+      <li><i class="ii ii--c" aria-hidden="true"></i><b>Colour</b>: off by default; use <em>Colour</em> above the city to tint by module type, language or code health (green = simple, yellow = watch, red = complex; legend under the city).</li>
       <li><i class="ii ii--v" aria-hidden="true"></i><b>The Vault = secret files</b> (.env, keys). Only their names are known; contents are never read.</li>
       <li><i class="ii ii--a" aria-hidden="true"></i><b>Roads and arcs = imports.</b> Select a building: <span class="t-uses">orange</span> arcs go to files it uses, <span class="t-by">blue</span> arcs come from files that use it.</li>
       <li><i class="ii ii--m" aria-hidden="true"></i><b>Click</b> a building to talk to it, <b>double-click</b> to open its code.</li>
+      <li><i class="ii ii--m" aria-hidden="true"></i><b>Learn the code</b>: <em>Where to start</em> numbers the files to read first, <em>Summary</em> builds a small city step by step from the entry file, <kbd>Ctrl K</kbd> or <kbd>/</kbd> searches files and functions, and in focus mode the building chats with you.</li>
       <li><i class="ii ii--z" aria-hidden="true"></i><b>Scroll</b> (or pinch) to zoom, <b>right-drag</b> or <b>Shift+drag</b> to pan, <b>left-drag</b> to rotate.</li>
     </ul>
     <div class="ws-intro__foot">

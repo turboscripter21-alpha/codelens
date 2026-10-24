@@ -193,7 +193,10 @@ new MutationObserver(() => {
 export const editorTheme = () => (editor ? themeNow || themeName() : null);
 
 /* ---- the panel ---- */
-let editor = null, lev = null, open = false, current = null;
+let editor = null, lev = null, open = false, current = null, wantLine = 1;
+const focusSubs = new Set();
+/** Called with (path, file) every time focus mode opens a file (used by the building chat). */
+export const onFocus = fn => { focusSubs.add(fn); };
 const el = () => $('.ws-focus');
 
 function crumbs(p) {
@@ -256,19 +259,39 @@ async function showCode(p) {
   } else {
     const old = editor.getModel(); editor.setModel(model); old && old.dispose();
   }
-  const line = 1;
+  const line = Math.min(Math.max(1, wantLine | 0), model.getLineCount());
   editor.setPosition({ lineNumber: line, column: 1 }); editor.revealLineInCenterIfOutsideViewport(line);
   status(line, 1, langName);
 }
 
-export function enterFocus(p, file) {
-  current = p;
+export function enterFocus(p, file, line) {
+  current = p; wantLine = line || 1;
   const f = el(); f.hidden = false; document.body.classList.add('is-focus'); open = true;
   if (!lev) { lev = createLevitator($('[data-lev]'), { reduce }); window.__codelensLev = lev; }
   lev.show(p, buildingOf(p)); lev.start();
   $('[data-ftitle]').textContent = p.split('/').pop();
   showCode(p);
   $('.ws-focus__back').focus({ preventScroll: true });
+  for (const fn of focusSubs) { try { fn(p, file); } catch (err) { console.warn('[codelens] focus listener', err); } }
+}
+/** The Monaco cursor line of the open file: { line, text, count } (null before Monaco is ready). */
+export function cursorLine() {
+  if (!editor || !open) return null;
+  const m = editor.getModel(), pos = editor.getPosition(); if (!m || !pos) return null;
+  return { line: pos.lineNumber, text: m.getLineContent(pos.lineNumber), count: m.getLineCount() };
+}
+/** Text of line n of the open file (null if out of range or not loaded). */
+export function lineAt(n) {
+  const m = editor && open && editor.getModel(); if (!m || !(n >= 1 && n <= m.getLineCount())) return null;
+  return m.getLineContent(n);
+}
+/** Move the editor cursor to line n and show it. */
+export function goToLine(n) {
+  if (!editor || !open) { wantLine = n; return; }
+  const m = editor.getModel(); if (!m) return;
+  const l = Math.min(Math.max(1, n | 0), m.getLineCount());
+  editor.setPosition({ lineNumber: l, column: 1 }); editor.revealLineInCenter(l);
+  status(l, 1, LANG(current)[1]);
 }
 export function exitFocus() {
   clearMedia($('[data-binary]'));

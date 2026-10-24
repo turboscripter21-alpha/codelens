@@ -50,6 +50,8 @@ const nextConfig: NextConfig = {
   // The CodeLens frontend is the static site in public/ (landing, building, workspace).
   // Clean URLs map onto those files; the API routes in app/api are the backend.
   poweredByHeader: false,
+  // DB drivers load at runtime on the server only (Postgres for history; PGlite only in local dev / tests).
+  serverExternalPackages: ["postgres", "@electric-sql/pglite"],
   async headers() {
     const staticPages = ["/", "/building", "/workspace", "/:page(index|building|workspace).html"];
     return [

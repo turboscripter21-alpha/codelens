@@ -3,21 +3,16 @@
    The user's key is kept only in this browser (localStorage) and sent per request in the
    x-gemini-key header; the server forwards it to Google and never stores or logs it.
    Answers are rendered with textContent only (never HTML): AI output and repo text are untrusted. */
-const KEY = 'codelens.geminiKey';
+import { keyStore as store, openKeyDialog, onKeyChange, askGemini } from './keydlg.js';
 const $ = (s, r = document) => r.querySelector(s);
-const store = {
-  get() { try { return localStorage.getItem(KEY) || ''; } catch { return ''; } },
-  set(v) { try { v ? localStorage.setItem(KEY, v) : localStorage.removeItem(KEY); } catch { /* storage blocked */ } },
-};
-const KEY_RE = /^[A-Za-z0-9_-]{30,64}$/;
+export const NEED_KEY = 'To answer, CodeLens needs your free Google Gemini API key. It takes a minute: follow the steps, paste the key and your question is sent right away.';
 
 export function initChat({ project, current, fileContext, projectContext, source }) {
   const box = $('[data-chat]'), log = $('[data-chat-log]');
   const ask = $('[data-ask]'), follow = $('[data-follow]'), send = $('[data-follow-send]');
   const keyBtn = $('[data-key]'), keyLabel = $('[data-key-label]');
-  const dlg = $('[data-keydlg]'), keyIn = $('[data-keyinput]'), keyErr = $('[data-keyerr]');
   const history = [];
-  let busy = false, retry = null;
+  let busy = false;
 
   function renderKey() {
     const has = !!store.get();
@@ -25,21 +20,9 @@ export function initChat({ project, current, fileContext, projectContext, source
     keyLabel.textContent = has ? 'Gemini key added' : 'Add Gemini key';
     follow.placeholder = current() ? 'Ask ' + current().split('/').pop() + ' a question' : 'Ask this file a question';
   }
-  function openKey() {
-    keyIn.value = store.get(); keyErr.hidden = true;
-    $('[data-keyremove]').hidden = !store.get();
-    if (typeof dlg.showModal === 'function') dlg.showModal(); else dlg.setAttribute('open', '');
-    keyIn.focus();
-  }
-  keyBtn.addEventListener('click', openKey);
-  $('[data-keycancel]').addEventListener('click', () => dlg.close());
-  $('[data-keyremove]').addEventListener('click', () => { store.set(''); renderKey(); dlg.close(); });
-  $('[data-keyform]').addEventListener('submit', (e) => {
-    const v = keyIn.value.trim();
-    if (!KEY_RE.test(v)) { e.preventDefault(); keyErr.hidden = false; keyErr.textContent = 'That does not look like a Gemini API key (it usually starts with "AIza").'; return; }
-    store.set(v); renderKey();
-    if (retry) { const r = retry; retry = null; setTimeout(r, 0); }
-  });
+  const openKey = (reason) => openKeyDialog(typeof reason === 'string' ? reason : undefined);
+  keyBtn.addEventListener('click', () => openKey());
+  onKeyChange(renderKey);
 
   function bubble(role, text, cls) {
     box.hidden = false;
@@ -58,9 +41,10 @@ export function initChat({ project, current, fileContext, projectContext, source
     const key = store.get();
     const file = current();
     if (!key) {
-      const li = bubble('ai', 'To answer, CodeLens needs your free Google Gemini API key. Click "Add Gemini key", paste a key from aistudio.google.com/apikey and your question will be sent. The key stays in this browser.', 'is-note');
-      action(li, 'Add Gemini key', openKey);
-      retry = () => run(question, scope);
+      const li = bubble('ai', 'To answer, CodeLens needs your free Google Gemini API key. The key stays in this browser.', 'is-note');
+      const again = () => openKey(NEED_KEY).then(saved => { if (saved) { li.remove(); run(question, scope); } });
+      action(li, 'Add Gemini key', again);
+      again();
       return;
     }
     busy = true; ask.disabled = follow.disabled = send.disabled = true;
@@ -74,16 +58,16 @@ export function initChat({ project, current, fileContext, projectContext, source
       } else {
         body.file = file || ''; body.context = projectContext();
       }
-      const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-gemini-key': key }, body: JSON.stringify(body) });
-      let j = {}; try { j = await res.json(); } catch { /* not JSON */ }
+      const r = await askGemini(body, key);
       wait.classList.remove('is-wait');
-      if (!res.ok) {
+      if (!r.ok) {
         wait.classList.add('is-err');
-        $('p', wait).textContent = j.error || ('Gemini request failed (' + res.status + ').');
-        if (res.status === 401) action(wait, 'Update key', openKey);
-        else if (res.status === 429 || res.status === 503) action(wait, 'Try again', () => { wait.remove(); run(question, scope); });
+        $('p', wait).textContent = r.error;
+        if (r.status === 401) action(wait, 'Update key', () => openKey());
+        else if (r.status === 429 || r.status === 503 || r.status === 0) action(wait, 'Try again', () => { wait.remove(); run(question, scope); });
         return;
       }
+      const j = { text: r.text };
       $('p', wait).textContent = j.text || '';
       history.push({ role: 'user', text: question }, { role: 'model', text: (j.text || '').slice(0, 2000) });
     } catch {

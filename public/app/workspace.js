@@ -4,6 +4,12 @@
    an "Import a repo first" empty state that links back to the import plate.
    The city is the live CodeCity engine (app/city/engine.js) built from that project. */
 import { enterFocus, exitFocus, isFocus, setSourceProvider, setBuildingProvider, setProjectName } from './focus.js';
+import { offerKeyOnce } from './keydlg.js';
+import { initBuildingChat } from './bchat.js';
+import { initSearch } from './search.js';
+import { initSummary } from './summary.js';
+import { findEntry, whereToStart } from './insights.js';
+import { mountChip, noteSaved } from './account.js';
 import { createCity } from './city/engine.js';
 import { FEATURES } from './features.js';
 import * as Lib from './citylib/index.js';
@@ -40,11 +46,13 @@ let onTheme = () => {};
   paint();
 }
 
+if (FEATURES.accounts !== false) { try { mountChip($('.ws-bar'), $('[data-intro-open]')); } catch (err) { console.warn('[codelens] account chip', err); } }
+
 let stored = null;
 try { stored = await CL.loadProject(); } catch (err) { console.warn('[codelens] no stored project', err); }
 let started = false;
 if (stored && Array.isArray(stored.files) && stored.files.length) {
-  try { started = true; run(stored); }
+  try { started = true; run(stored); if (FEATURES.accounts !== false) noteSaved(); }
   catch (err) {
     // A stored project this version can't read (old format, edited by hand): don't crash, ask for a fresh import.
     console.warn('[codelens] stored project unreadable', err);
@@ -207,7 +215,7 @@ const tree = (() => {
 
 /* the live city */
 const host = $('[data-city]');
-let colorBy = FEATURES.colorCoding && ['moduleType', 'language'].includes(q.get('colorBy')) ? q.get('colorBy') : 'none';
+let colorBy = FEATURES.colorCoding && ['moduleType', 'language', ...(FEATURES.healthColors ? ['health'] : [])].includes(q.get('colorBy')) ? q.get('colorBy') : 'none';
 const city = createCity(host, plan, {
   colorBy, night, labels: FEATURES.folderLabels && q.get('labels') !== '0',
   onSelect: id => { const b = bById[id]; select(b.members ? b.members[0] : id); },
@@ -248,6 +256,19 @@ function select(p, push) {
   $('[data-lines]').textContent = f.secret ? 'not read' : f.binary ? (f.bytes / 1024).toFixed(1) + ' KB' : (f.estimated ? '~' : '') + (f.lines || f.loc).toLocaleString() + ' lines';
   $('[data-langname]').textContent = f.secret || f.binary ? '' : f.language;
   $('[data-plain]').textContent = plain(f);
+  {
+    const h = $('[data-health]'), fh = FEATURES.healthColors && f.health;
+    h.hidden = !fh;
+    if (fh) {
+      const L = { good: 'healthy', warn: 'worth watching', bad: 'complex' }[fh.lv] || fh.lv;
+      h.className = 'ws-health ws-health--' + fh.lv;
+      h.replaceChildren();
+      const b = document.createElement('b'); b.textContent = 'Health ' + (100 - fh.s) + '/100 · ' + L;
+      const sp = document.createElement('span');
+      sp.textContent = `Complexity ${fh.s}/100 from ${fh.br} branches, nesting depth ${fh.dp}` + (fh.fn ? `, longest function ${fh.fn} lines${fh.fnName ? ' (' + fh.fnName + ')' : ''}` : '') + '. A static estimate, not a verdict.';
+      h.append(b, sp);
+    }
+  }
   $('[data-say]').textContent = say(f);
   $('[data-saycap]').textContent = f.description ? 'Summary from the import.' : 'From the file\'s real stats (no AI). Ask a question below for a Gemini answer; AI can be wrong.';
   chat && chat.renderKey();
@@ -281,11 +302,7 @@ async function showCode(p) {
 /* Gemini chat (Talk panel + Ask anything), also usable beside Monaco in focus mode */
 chat = initChat({
   project, current: () => current, source,
-  fileContext: p => {
-    const f = byPath[p]; if (!f) return '';
-    return [plain(f), 'Language: ' + f.language + '. Kind: ' + modOf(f) + '.',
-      'Uses: ' + (f.uses.slice(0, 30).join(', ') || 'nothing'), 'Used by: ' + (f.usedBy.slice(0, 30).join(', ') || 'nobody')].join('\n');
-  },
+  fileContext: p => fileContext(p),
   projectContext: () => {
     const st = project.stats;
     const dirs = {}; for (const f of files) { const d = f.path.includes('/') ? f.path.split('/')[0] + '/' : '(root)'; dirs[d] = (dirs[d] || 0) + 1; }
@@ -302,12 +319,15 @@ chat = initChat({
   const dlg = $('[data-intro]'), never = $('[data-intro-never]');
   const open = () => { never.checked = ls.get('codelens.introSeen') === '1'; if (!dlg.open) { if (dlg.showModal) dlg.showModal(); else dlg.setAttribute('open', ''); } };
   const close = () => { if (never.checked) ls.set('codelens.introSeen', '1'); else if (ls.get('codelens.introSeen') === '1') ls.set('codelens.introSeen', '0'); dlg.close(); };
+  // The Gemini key pop-up is offered once, right after the intro closes (and whenever AI is used without a key).
+  dlg.addEventListener('close', () => { if (q.get('key') !== '0') setTimeout(offerKeyOnce, 250); });
   dlg.querySelectorAll('[data-intro-close]').forEach(b => b.addEventListener('click', close));
   dlg.addEventListener('cancel', () => { if (never.checked) ls.set('codelens.introSeen', '1'); });
   dlg.addEventListener('click', e => { if (e.target === dlg) close(); });
   $('[data-intro-open]').addEventListener('click', open);
   window.CodeLensIntro = { open, close };
   if (ls.get('codelens.introSeen') !== '1' && q.get('intro') !== '0') open();
+  else if (q.get('key') !== '0') setTimeout(offerKeyOnce, 600);
 }
 
 /* focus mode gets the same data */
@@ -327,22 +347,71 @@ document.addEventListener('dblclick', e => {
 });
 document.querySelectorAll('.ws-focus__close, .ws-focus__back').forEach(b => b.addEventListener('click', exitFocus));
 window.CodeLensWorkspace = { focus: p => { select(p); enterFocus(p, byPath[p]); }, exit: exitFocus, select, city, plan };
-new MutationObserver(() => city.pause(document.body.classList.contains('is-focus') || $('#view-city').hidden)).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+new MutationObserver(() => city.pause(document.body.classList.contains('is-focus') || document.body.classList.contains('is-sum') || $('#view-city').hidden)).observe(document.body, { attributes: true, attributeFilter: ['class'] });
 
 /* colour-code + folder label toggles (feature flags: colorCoding, folderLabels) */
 const cbBtn = $('[data-colorby]'), lbBtn = $('[data-labels]');
-const CB = ['none', 'moduleType', 'language'], CBN = { none: 'none', moduleType: 'module type', language: 'language' };
+const CB = ['none', 'moduleType', 'language', ...(FEATURES.healthColors ? ['health'] : [])], CBN = { none: 'none', moduleType: 'module type', language: 'language', health: 'code health' };
 function renderToggles() {
   cbBtn.textContent = 'Colour: ' + CBN[city.colorBy]; cbBtn.setAttribute('aria-pressed', String(city.colorBy !== 'none'));
   lbBtn.textContent = 'Folder labels: ' + (city.labels ? 'on' : 'off'); lbBtn.setAttribute('aria-pressed', String(city.labels));
-  const used = new Set(plan.buildings.map(b => city.colorBy === 'language' ? b.language : b.moduleType));
-  const L = Lib.legendFor(city.colorBy).filter(e => used.has(e.key === 'data / db' ? 'data' : e.key));
+  const used = new Set(plan.buildings.map(b => city.colorBy === 'language' ? b.language : city.colorBy === 'health' ? (b.health || 'none') : b.moduleType));
+  const L = Lib.legendFor(city.colorBy).filter(e => used.has(city.colorBy === 'health' ? e.level : e.key === 'data / db' ? 'data' : e.key));
   $('[data-colorlegend]').innerHTML = L.map(e => `<span><i style="background:${e.color}"></i>${e.key}</span>`).join('');
 }
 cbBtn.hidden = !FEATURES.colorCoding; lbBtn.hidden = !FEATURES.folderLabels;
 cbBtn.addEventListener('click', () => { city.setColorBy(CB[(CB.indexOf(city.colorBy) + 1) % CB.length]); renderToggles(); });
 lbBtn.addEventListener('click', () => { city.setLabels(!city.labels); renderToggles(); });
 renderToggles();
+
+/* ---- learning helpers: where to start, search, building chat, summary ---- */
+const fileContext = p => {
+  const f = byPath[p]; if (!f) return '';
+  const syms = (f.symbols || []).slice(0, 40).map(x => x.n + ' (' + x.k + ', line ' + x.l + (x.e ? ', exported' : '') + ')').join(', ');
+  return [plain(f), 'Language: ' + f.language + '. Kind: ' + modOf(f) + '.',
+    'Uses: ' + (f.uses.slice(0, 30).join(', ') || 'nothing'), 'Used by: ' + (f.usedBy.slice(0, 30).join(', ') || 'nobody')].concat(syms ? ['Functions / exports: ' + syms] : []).join('\n');
+};
+// The entry file: package.json main/bin when there is one (read through the same safe source path), else by name / importance.
+let entryPromise = null;
+const entryP = () => entryPromise || (entryPromise = (async () => {
+  const pkg = files.find(f => f.path === 'package.json') ? await source('package.json').catch(() => null) : null;
+  return findEntry(files, pkg && pkg.kind === 'text' ? pkg.text : null);
+})());
+let startList = [];
+const flyTo = (p, opts = {}) => {
+  if (isFocus()) exitFocus();
+  show('city'); select(p);
+  const b = buildingOf(p); if (b && city.flyTo) city.flyTo(b.id, opts.dist);
+};
+{
+  const btn = $('[data-start-open]'), panel = $('[data-startpanel]'), ol = $('[data-startlist]');
+  const render = () => {
+    ol.replaceChildren(...startList.map((s, i) => {
+      const li = document.createElement('li'); const b = document.createElement('button'); b.type = 'button'; b.className = 'ws-start__item'; b.dataset.start = s.path;
+      const n = document.createElement('i'); n.textContent = String(i + 1);
+      const t = document.createElement('b'); t.textContent = base(s.path); t.title = s.path;
+      const w = document.createElement('span'); w.textContent = s.why;
+      b.append(n, t, w); b.addEventListener('click', () => flyTo(s.path)); li.append(b); return li;
+    }));
+  };
+  const setOn = on => {
+    panel.hidden = !on; btn.setAttribute('aria-pressed', String(on));
+    const marks = [];
+    if (on) for (const [i, s] of startList.entries()) { const b = buildingOf(s.path); if (b) marks.push({ id: b.id, n: i + 1, title: (i + 1) + '. ' + s.path, onClick: () => flyTo(s.path) }); }
+    city.setMarkers && city.setMarkers(marks);
+  };
+  if (FEATURES.whereToStart !== false) {
+    btn.hidden = false;
+    entryP().then(e => { startList = whereToStart(files, e); render(); if (q.get('start') === '1') setOn(true); });
+    btn.addEventListener('click', () => setOn(panel.hidden));
+    $('[data-start-close]').addEventListener('click', () => setOn(false));
+  }
+  window.CodeLensStart = { get list() { return startList; }, set: setOn };
+}
+if (FEATURES.search !== false) window.CodeLensSearch = initSearch({ files, onPick: r => { flyTo(r.path); } });
+const bchat = FEATURES.buildingChat !== false ? initBuildingChat({ project, byPath, source, fileContext, startList: () => startList }) : null;
+const summary = FEATURES.summary !== false ? initSummary({ project, files, byPath, buildingOf, entryP, source, fileContext, onOpenInCity: p => flyTo(p) }) : null;
+window.CodeLensLearn = { bchat, summary, entry: entryP };
 
 /* tabs */
 const tabs = [$('#tab-city'), $('#tab-code')];

@@ -15,6 +15,7 @@ import { isSecretPath, isBinaryExt, mediaMime, MEDIA_MAX_BYTES } from "@/lib/ana
 import { parseGitHubUrl } from "@/lib/github";
 import type { ImportProgress, Project } from "@/lib/types";
 import { own } from "@/lib/safeDict";
+import { analysisOf, authStatus, deleteHistory, listHistory, logout, recordHistory, restoreHistory, startLogin, verifyLogin } from "@/lib/client/historyClient";
 
 const DB = "codelens";
 const STORE = "projects";
@@ -144,7 +145,8 @@ export function plan(project: Project, flags: PlanOptions = {}) {
   return planCity(project, flags);
 }
 
-const api = { setPending, getPending, clearPending, saveProject, loadProject, clearProject, runImport, checkGithubUrl, getSource, plan, filesFromEntry, ClientImportError };
+const api = { setPending, getPending, clearPending, saveProject, loadProject, clearProject, runImport, checkGithubUrl, getSource, plan, filesFromEntry, ClientImportError,
+  recordHistory, listHistory, deleteHistory, restoreHistory, analysisOf, authStatus, startLogin, verifyLogin, logout };
 declare global {
   interface Window {
     CodeLens: typeof api;

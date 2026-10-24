@@ -11,6 +11,7 @@ import { CAPS, isLockfile } from "./rules";
 import { kindFromPath } from "./kind";
 import { extractImports, importLangFor, resolveImport } from "./imports";
 import { dict } from "../safeDict";
+import { codeFacts } from "./symbols";
 
 export interface AnalyzeOptions {
   name: string;
@@ -124,6 +125,20 @@ export function analyzeEntries(entries: SourceEntry[], opts: AnalyzeOptions): Pr
     edges += f.uses.length;
   }
   for (const f of files) f.usedBy.sort();
+
+  // Symbols + code health (static scan only, never executed).
+  let symbolBudget = 80_000;
+  for (const f of files) {
+    const text = texts.get(f.path);
+    if (!text || f.lockfile || f.secret || f.binary || symbolBudget <= 0) continue;
+    const facts = codeFacts(f.path, text, f.loc);
+    if (!facts) continue;
+    f.health = facts.health;
+    if (facts.symbols.length) {
+      f.symbols = facts.symbols;
+      symbolBudget -= facts.symbols.length;
+    }
+  }
 
   // Promote heavily imported files to "core".
   const degrees = files.map((f) => f.usedBy.length).sort((a, b) => a - b);

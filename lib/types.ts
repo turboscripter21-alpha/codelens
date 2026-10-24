@@ -165,6 +165,29 @@ export interface ProjectFile {
   description?: string;
   /** Optional module type override (core, ui, api, utility, data, config, test): the prototype sample sets it. */
   moduleType?: string;
+  /** Functions / classes / exports found by the static scanner (code files only). */
+  symbols?: CodeSymbol[];
+  /** Complexity score (code files only). */
+  health?: FileHealth;
+}
+
+/** n = name, k = kind, l = 1-based line, end = last line of the body, e = 1 when exported / public. */
+export interface CodeSymbol {
+  n: string;
+  k: "fn" | "method" | "class" | "type" | "var";
+  l: number;
+  end?: number;
+  e?: 1;
+}
+
+/** s = 0-100 score, lv = level, br = branch keywords, dp = max nesting depth, fn = longest function (lines). */
+export interface FileHealth {
+  s: number;
+  lv: "good" | "warn" | "bad";
+  br: number;
+  dp: number;
+  fn: number;
+  fnName?: string;
 }
 
 export type ProjectSource =

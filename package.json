@@ -14,10 +14,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@electric-sql/pglite": "^0.5.11",
     "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.2",
     "fflate": "^0.8.3",
     "next": "16.4.2",
+    "postgres": "^3.4.9",
     "prism-react-renderer": "^2.4.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
