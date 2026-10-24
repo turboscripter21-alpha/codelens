@@ -1,0 +1,356 @@
+{
+ "frame": [
+  2400,
+  1350
+ ],
+ "artery": [
+  32.625,
+  38.81481481481481,
+  19.416666666666664,
+  12.0
+ ],
+ "buildings": {
+  "src/index.js": {
+   "slug": "src_index-js",
+   "rect": [
+    33.333,
+    17.852,
+    6.5,
+    20.074
+   ],
+   "base": [
+    38.02,
+    35.86
+   ],
+   "top": [
+    37.18,
+    16.06
+   ],
+   "depth": 267.42
+  },
+  "src/App.js": {
+   "slug": "src_App-js",
+   "rect": [
+    37.917,
+    9.704,
+    9.375,
+    30.074
+   ],
+   "base": [
+    45.21,
+    37.31
+   ],
+   "top": [
+    44.55,
+    7.51
+   ],
+   "depth": 256.92
+  },
+  "src/components/Navbar/Navbar.js": {
+   "slug": "src_components_Navbar_Navbar-js",
+   "rect": [
+    34.167,
+    41.63,
+    5.833,
+    10.667
+   ],
+   "base": [
+    38.12,
+    49.75
+   ],
+   "top": [
+    37.76,
+    40.58
+   ],
+   "depth": 253.91
+  },
+  "src/components/Navbar/Navbar.css": {
+   "slug": "src_components_Navbar_Navbar-css",
+   "rect": [
+    35.0,
+    52.222,
+    3.333,
+    5.333
+   ],
+   "base": [
+    36.85,
+    55.48
+   ],
+   "top": [
+    36.74,
+    51.8
+   ],
+   "depth": 251.66
+  },
+  "src/components/Button/Button.js": {
+   "slug": "src_components_Button_Button-js",
+   "rect": [
+    31.5,
+    44.667,
+    3.417,
+    5.185
+   ],
+   "base": [
+    33.37,
+    47.85
+   ],
+   "top": [
+    33.24,
+    44.25
+   ],
+   "depth": 262.92
+  },
+  "src/components/Button/Button.css": {
+   "slug": "src_components_Button_Button-css",
+   "rect": [
+    30.125,
+    50.37,
+    3.292,
+    5.259
+   ],
+   "base": [
+    31.94,
+    53.6
+   ],
+   "top": [
+    31.79,
+    49.95
+   ],
+   "depth": 256.2
+  },
+  "src/hooks/useAuth.js": {
+   "slug": "src_hooks_useAuth-js",
+   "rect": [
+    39.833,
+    44.148,
+    6.625,
+    11.111
+   ],
+   "base": [
+    43.84,
+    51.82
+   ],
+   "top": [
+    43.62,
+    42.59
+   ],
+   "depth": 250.3
+  },
+  "src/utils/helpers.js": {
+   "slug": "src_utils_helpers-js",
+   "rect": [
+    45.875,
+    47.259,
+    4.958,
+    8.074
+   ],
+   "base": [
+    49.12,
+    52.91
+   ],
+   "top": [
+    49.08,
+    46.17
+   ],
+   "depth": 249.77
+  },
+  "public/index.html": {
+   "slug": "public_index-html",
+   "rect": [
+    25.042,
+    41.556,
+    3.208,
+    5.037
+   ],
+   "base": [
+    26.8,
+    44.71
+   ],
+   "top": [
+    26.63,
+    41.19
+   ],
+   "depth": 271.49
+  },
+  "public/favicon.ico": {
+   "slug": "public_favicon-ico",
+   "rect": [
+    22.833,
+    41.481,
+    3.0,
+    4.37
+   ],
+   "base": [
+    24.35,
+    43.96
+   ],
+   "top": [
+    24.16,
+    40.3
+   ],
+   "depth": 274.34
+  },
+  "public/assets/logo.svg": {
+   "slug": "public_assets_logo-svg",
+   "rect": [
+    17.958,
+    40.0,
+    3.042,
+    4.444
+   ],
+   "base": [
+    19.49,
+    42.5
+   ],
+   "top": [
+    19.27,
+    38.87
+   ],
+   "depth": 280.59
+  },
+  "public/assets/banner.png": {
+   "slug": "public_assets_banner-png",
+   "rect": [
+    19.958,
+    40.074,
+    3.292,
+    5.037
+   ],
+   "base": [
+    21.74,
+    43.19
+   ],
+   "top": [
+    21.54,
+    39.67
+   ],
+   "depth": 277.62
+  },
+  "tests/App.test.js": {
+   "slug": "tests_App-test-js",
+   "rect": [
+    22.708,
+    31.037,
+    3.042,
+    4.593
+   ],
+   "base": [
+    24.29,
+    34.1
+   ],
+   "top": [
+    24.11,
+    30.73
+   ],
+   "depth": 290.38
+  },
+  "tests/helpers.test.js": {
+   "slug": "tests_helpers-test-js",
+   "rect": [
+    26.417,
+    32.148,
+    3.0,
+    4.593
+   ],
+   "base": [
+    28.01,
+    35.21
+   ],
+   "top": [
+    27.85,
+    31.82
+   ],
+   "depth": 285.63
+  },
+  ".github/workflows/main.yml": {
+   "slug": "-github_workflows_main-yml",
+   "rect": [
+    60.083,
+    36.0,
+    6.583,
+    11.704
+   ],
+   "base": [
+    64.21,
+    44.83
+   ],
+   "top": [
+    64.61,
+    34.57
+   ],
+   "depth": 261.34
+  },
+  "package.json": {
+   "slug": "package-json",
+   "rect": [
+    56.708,
+    49.481,
+    6.333,
+    10.074
+   ],
+   "base": [
+    60.5,
+    55.98
+   ],
+   "top": [
+    60.71,
+    47.88
+   ],
+   "depth": 247.45
+  },
+  "README.md": {
+   "slug": "README-md",
+   "rect": [
+    54.5,
+    50.815,
+    3.375,
+    5.333
+   ],
+   "base": [
+    56.41,
+    54.05
+   ],
+   "top": [
+    56.46,
+    50.37
+   ],
+   "depth": 251.57
+  },
+  ".gitignore": {
+   "slug": "-gitignore",
+   "rect": [
+    62.875,
+    54.0,
+    3.042,
+    4.815
+   ],
+   "base": [
+    64.58,
+    56.64
+   ],
+   "top": [
+    64.69,
+    52.8
+   ],
+   "depth": 250.94
+  },
+  ".env.example": {
+   "slug": "-env-example",
+   "rect": [
+    60.875,
+    60.296,
+    3.792,
+    6.963
+   ],
+   "base": [
+    63.1,
+    64.53
+   ],
+   "top": [
+    63.22,
+    59.78
+   ],
+   "depth": 241.31
+  }
+ }
+}

@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+:root {
+  --canvas: #e7eaee;
+  --surface: #f6f7f9;
+  --ink: #12161c;
+  --ink-soft: #475060;
+  --accent: #ffc21a;
+  --accent-deep: #c99300;
+  --line: color-mix(in oklab, #12161c 12%, transparent);
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-accent: var(--accent);
+  --color-accent-deep: var(--accent-deep);
+  --color-line: var(--line);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html,
+body {
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+::selection {
+  background: color-mix(in oklab, var(--accent) 45%, transparent);
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--ink);
+  font-weight: 650;
+  border-radius: 10px;
+  box-shadow: 0 1px 0 rgb(255 255 255 / 0.55) inset, 0 2px 0 var(--accent-deep), 0 6px 14px -6px rgb(40 50 70 / 0.45);
+  transition: transform 140ms ease-out, background-color 140ms ease-out, box-shadow 140ms ease-out;
+}
+.btn-primary:hover:not(:disabled) { background: #ffcd3f; transform: translateY(-1px); }
+.btn-primary:active:not(:disabled) { transform: translateY(1px); box-shadow: 0 1px 0 rgb(255 255 255 / 0.55) inset, 0 1px 0 var(--accent-deep); }
+.btn-primary:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.btn-ghost {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  transition: background-color 140ms ease-out, border-color 140ms ease-out;
+}
+.btn-ghost:hover { background: #fff; border-color: color-mix(in oklab, #12161c 22%, transparent); }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 1px 0 rgb(255 255 255 / 0.7) inset, 0 18px 40px -22px rgb(30 40 60 / 0.35);
+}
+
+@keyframes cl-pop { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: none; } }
+@keyframes cl-slide { from { opacity: 0; transform: translateX(-16px); } to { opacity: 1; transform: none; } }
+@keyframes cl-spin { to { transform: rotate(360deg); } }
+.anim-pop { animation: cl-pop 180ms ease-out both; }
+.anim-slide { animation: cl-slide 220ms ease-out both; }
+.anim-spin { animation: cl-spin 0.9s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .anim-pop, .anim-slide { animation: none; }
+}

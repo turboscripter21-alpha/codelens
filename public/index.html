@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CodeLens · your repo, as a city you can walk through</title>
+<meta name="description" content="Paste a GitHub repo or a project folder and CodeLens lays every file out as a building in a 3D city, so beginners can see what matters first.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%2312161C'/><circle cx='16' cy='16' r='9.5' fill='none' stroke='%23FFC21A' stroke-width='3'/><rect x='11' y='15' width='3' height='6' fill='%23fff'/><rect x='15' y='10' width='3' height='11' fill='%23FFC21A'/><rect x='19' y='13' width='3' height='8' fill='%23fff'/></svg>">
+<link rel="preload" href="fonts/archivo.woff" as="font" type="font/woff" crossorigin>
+<link rel="stylesheet" href="scrollcraft.css">
+<link rel="stylesheet" href="codelens.css">
+</head>
+<body>
+
+<a class="cl-skip" href="#main">Skip to content</a>
+
+<!-- The transit line: the page's navigation. Each stop is a section. -->
+<nav class="cl-line" aria-label="Stops on this page">
+  <a class="cl-mark" href="#arrive" aria-label="CodeLens, back to the first stop">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="11" fill="none" stroke="currentColor" stroke-width="2.6"/><rect x="10.5" y="15" width="3" height="7" fill="currentColor"/><rect x="14.6" y="9.5" width="3" height="12.5" class="cl-mark__hi"/><rect x="18.7" y="12.5" width="3" height="9.5" fill="currentColor"/></svg>
+    <span>CodeLens</span>
+  </a>
+  <p class="cl-line__tag">College showcase project</p>
+  <ol class="cl-line__stops">
+    <li><a href="#arrive" data-stop="arrive"><i></i><span>Arrive</span></a></li>
+    <li><a href="#pile" data-stop="pile"><i></i><span>The pile</span></a></li>
+    <li><a href="#traffic" data-stop="traffic"><i></i><span>Traffic</span></a></li>
+    <li><a href="#talk" data-stop="talk"><i></i><span>Talk</span></a></li>
+    <li><a href="#read" data-stop="read"><i></i><span>Read</span></a></li>
+    <li><a href="#run" data-stop="run"><i></i><span>Run</span></a></li>
+    <li><a href="#your-repo" data-stop="your-repo"><i></i><span>Your repo</span></a></li>
+  </ol>
+  <span class="cl-line__now" aria-hidden="true">Arrive</span>
+  <a class="cl-btn cl-line__cta" href="#import">Paste a repo</a>
+</nav>
+
+<main id="main">
+
+  <!-- STOP 1 · ARRIVE: natural-flow layered planes (grid, city, near tower, near trees) -->
+  <section id="arrive" class="cl-hero" data-sc-act="flow" data-cl-stop="arrive">
+    <div class="cl-hero__grid" data-sc-parallax="2.2" aria-hidden="true"></div>
+    <div class="cl-hero__city" data-sc-parallax="1.1" aria-hidden="true">
+      <picture>
+        <source media="(max-width: 700px)" srcset="assets/city/mobile-hero.webp">
+        <img src="assets/city/full.webp" width="2400" height="1350" alt="">
+      </picture>
+    </div>
+    <div class="cl-hero__copy">
+      <h1 class="sc-display cl-h1">Your repo, as a city you can walk&nbsp;through.</h1>
+      <p class="cl-hero__sub">Paste a GitHub link or a project folder. Every file becomes a building, so you see what matters first.</p>
+      <p class="cl-hero__act"><a class="cl-btn" href="#import">Paste a repo</a><a class="cl-link" href="#pile" data-cl-land="0.3">Watch a city get built</a></p>
+    </div>
+    <img class="cl-hero__tower" data-sc-parallax="-2.4" src="assets/kit/tower.webp" width="321" height="1403" alt="" aria-hidden="true">
+    <img class="cl-hero__trees" data-sc-parallax="-3.2" src="assets/kit/trees.webp" width="489" height="701" alt="" aria-hidden="true">
+  </section>
+
+  <!-- STOP 2 · THE PILE, BUILT: pinned. The folder tree lights line by line and the
+       city builds beside it; the pile's question fades out as the first building rises. -->
+  <section id="pile" class="cl-build cl-merge" data-sc-act="pin" data-sc-span="4.6" data-cl-stop="pile">
+    <div data-sc-stage class="cl-build__stage" data-sc-verify-state="0">
+      <pre class="cl-tree cl-tree--raw" aria-label="The my-app folder tree, lit in the order its files are placed" data-sc-in data-sc-stagger="26"><span class="dir">my-app/</span><span class="dir">├── .github/</span><span class="dir">│   └── workflows/</span><span class="f" data-file=".github/workflows/main.yml">│       └── <b>main.yml</b></span><span class="dir">├── public/</span><span class="dir">│   ├── assets/</span><span class="f" data-file="public/assets/logo.svg">│   │   ├── <b>logo.svg</b></span><span class="f" data-file="public/assets/banner.png">│   │   └── <b>banner.png</b></span><span class="f" data-file="public/favicon.ico">│   ├── <b>favicon.ico</b></span><span class="f" data-file="public/index.html">│   └── <b>index.html</b></span><span class="dir">├── src/</span><span class="dir">│   ├── components/</span><span class="dir">│   │   ├── Button/</span><span class="f" data-file="src/components/Button/Button.js">│   │   │   ├── <b>Button.js</b></span><span class="f" data-file="src/components/Button/Button.css">│   │   │   └── <b>Button.css</b></span><span class="dir">│   │   └── Navbar/</span><span class="f" data-file="src/components/Navbar/Navbar.js">│   │       ├── <b>Navbar.js</b></span><span class="f" data-file="src/components/Navbar/Navbar.css">│   │       └── <b>Navbar.css</b></span><span class="dir">│   ├── hooks/</span><span class="f" data-file="src/hooks/useAuth.js">│   │   └── <b>useAuth.js</b></span><span class="dir">│   ├── utils/</span><span class="f" data-file="src/utils/helpers.js">│   │   └── <b>helpers.js</b></span><span class="f" data-file="src/App.js">│   ├── <b>App.js</b></span><span class="f" data-file="src/index.js">│   └── <b>index.js</b></span><span class="dir">├── tests/</span><span class="f" data-file="tests/App.test.js">│   ├── <b>App.test.js</b></span><span class="f" data-file="tests/helpers.test.js">│   └── <b>helpers.test.js</b></span><span class="f" data-file=".env.example">├── <b>.env.example</b></span><span class="f" data-file=".gitignore">├── <b>.gitignore</b></span><span class="f" data-file="package.json">├── <b>package.json</b></span><span class="f" data-file="README.md">└── <b>README.md</b></span></pre>
+
+      <div class="cl-build__copy">
+        <div class="cl-pilecopy" data-sc-cue="0 0.17 0 0.05">
+          <h2 class="sc-display cl-h2">A repo is a list. Lists don't say what matters.</h2>
+          <p class="cl-lede">Nineteen files in a small React app. Which one runs first? Which one would break everything if you touched it? The tree looks the same either way.</p>
+          <p class="cl-pile__q">So you open them one by one, top to bottom, and give up around <code>Navbar.css</code>.</p>
+        </div>
+        <p class="cl-lede" data-sc-cue="0.2 0.4 0.025 0.025">Every folder is a district. Every file is a building, placed where its folder&nbsp;lives.</p>
+        <p class="cl-lede" data-sc-cue="0.4 0.84 0.025 0.025">Height means weight. <code>App.js</code>, the file everything leans on, comes up as the tallest tower. Your <code>.env</code> file becomes a vault: names only, never&nbsp;values.</p>
+        <p class="cl-lede" data-sc-cue="0.84 1 0.025 0">Then the most-used route lights up. No AI built any of this: the same repo always makes the same&nbsp;city.</p>
+      </div>
+
+      <p class="cl-build__chip" aria-hidden="true"><span class="cl-build__chip-file">my-app/</span><span class="cl-build__chip-kind">empty plots</span></p>
+
+      <div class="cl-city" role="img" aria-label="The my-app city: districts for .github, public, src, tests and the root files, with App.js as the tallest tower and a glowing main road through downtown.">
+        <img class="cl-city__base" src="assets/city/base.webp" width="2400" height="1350" alt="">
+        <img class="cl-city__artery" src="assets/city/artery.webp" alt="" style="--x:32.625%;--y:38.815%;--w:19.417%">
+        <span class="cl-bw" data-b="tests/App.test.js" style="--x:22.708%;--y:31.037%;--w:3.042%;--h:4.593%;--bx:24.29%;--by:34.1%"><img class="cl-b" src="assets/city/b-tests_App-test-js.webp" alt=""></span>
+        <span class="cl-bw" data-b="tests/helpers.test.js" style="--x:26.417%;--y:32.148%;--w:3.0%;--h:4.593%;--bx:28.01%;--by:35.21%"><img class="cl-b" src="assets/city/b-tests_helpers-test-js.webp" alt=""></span>
+        <span class="cl-bw" data-b="src/index.js" style="--x:33.333%;--y:17.852%;--w:6.5%;--h:20.074%;--bx:38.02%;--by:35.86%"><img class="cl-b" src="assets/city/b-src_index-js.webp" alt=""></span>
+        <span class="cl-bw" data-b="src/App.js" style="--x:37.917%;--y:9.704%;--w:9.375%;--h:30.074%;--bx:45.21%;--by:37.31%"><img class="cl-b" src="assets/city/b-src_App-js.webp" alt=""></span>
+        <span class="cl-bw" data-b="public/assets/logo.svg" style="--x:17.958%;--y:40.0%;--w:3.042%;--h:4.444%;--bx:19.49%;--by:42.5%"><img class="cl-b" src="assets/city/b-public_assets_logo-svg.webp" alt=""></span>
+        <span class="cl-bw" data-b="public/assets/banner.png" style="--x:19.958%;--y:40.074%;--w:3.292%;--h:5.037%;--bx:21.74%;--by:43.19%"><img class="cl-b" src="assets/city/b-public_assets_banner-png.webp" alt=""></span>
+        <span class="cl-bw" data-b="public/favicon.ico" style="--x:22.833%;--y:41.481%;--w:3.0%;--h:4.37%;--bx:24.35%;--by:43.96%"><img class="cl-b" src="assets/city/b-public_favicon-ico.webp" alt=""></span>
+        <span class="cl-bw" data-b="public/index.html" style="--x:25.042%;--y:41.556%;--w:3.208%;--h:5.037%;--bx:26.8%;--by:44.71%"><img class="cl-b" src="assets/city/b-public_index-html.webp" alt=""></span>
+        <span class="cl-bw" data-b=".github/workflows/main.yml" style="--x:60.083%;--y:36.0%;--w:6.583%;--h:11.704%;--bx:64.21%;--by:44.83%"><img class="cl-b" src="assets/city/b--github_workflows_main-yml.webp" alt=""></span>
+        <span class="cl-bw" data-b="src/components/Button/Button.js" style="--x:31.5%;--y:44.667%;--w:3.417%;--h:5.185%;--bx:33.37%;--by:47.85%"><img class="cl-b" src="assets/city/b-src_components_Button_Button-js.webp" alt=""></span>
+        <span class="cl-bw" data-b="src/components/Navbar/Navbar.js" style="--x:34.167%;--y:41.63%;--w:5.833%;--h:10.667%;--bx:38.12%;--by:49.75%"><img class="cl-b" src="assets/city/b-src_components_Navbar_Navbar-js.webp" alt=""></span>
+        <span class="cl-bw" data-b="src/hooks/useAuth.js" style="--x:39.833%;--y:44.148%;--w:6.625%;--h:11.111%;--bx:43.84%;--by:51.82%"><img class="cl-b" src="assets/city/b-src_hooks_useAuth-js.webp" alt=""></span>
+        <span class="cl-bw" data-b="src/utils/helpers.js" style="--x:45.875%;--y:47.259%;--w:4.958%;--h:8.074%;--bx:49.12%;--by:52.91%"><img class="cl-b" src="assets/city/b-src_utils_helpers-js.webp" alt=""></span>
+        <span class="cl-bw" data-b="src/components/Button/Button.css" style="--x:30.125%;--y:50.37%;--w:3.292%;--h:5.259%;--bx:31.94%;--by:53.6%"><img class="cl-b" src="assets/city/b-src_components_Button_Button-css.webp" alt=""></span>
+        <span class="cl-bw" data-b="README.md" style="--x:54.5%;--y:50.815%;--w:3.375%;--h:5.333%;--bx:56.41%;--by:54.05%"><img class="cl-b" src="assets/city/b-README-md.webp" alt=""></span>
+        <span class="cl-bw" data-b="src/components/Navbar/Navbar.css" style="--x:35.0%;--y:52.222%;--w:3.333%;--h:5.333%;--bx:36.85%;--by:55.48%"><img class="cl-b" src="assets/city/b-src_components_Navbar_Navbar-css.webp" alt=""></span>
+        <span class="cl-bw" data-b="package.json" style="--x:56.708%;--y:49.481%;--w:6.333%;--h:10.074%;--bx:60.5%;--by:55.98%"><img class="cl-b" src="assets/city/b-package-json.webp" alt=""></span>
+        <span class="cl-bw" data-b=".gitignore" style="--x:62.875%;--y:54.0%;--w:3.042%;--h:4.815%;--bx:64.58%;--by:56.64%"><img class="cl-b" src="assets/city/b--gitignore.webp" alt=""></span>
+        <span class="cl-bw" data-b=".env.example" style="--x:60.875%;--y:60.296%;--w:3.792%;--h:6.963%;--bx:63.1%;--by:64.53%"><img class="cl-b" src="assets/city/b--env-example.webp" alt=""></span>
+        <img class="cl-city__traffic" src="assets/city/vehicles.webp" width="2400" height="1350" alt="">
+        <svg class="cl-city__lead" aria-hidden="true"><path d=""/><circle r="5"/></svg>
+      </div>
+      <p class="cl-build__note">Illustration: an example repo called my-app. Every image here is a real render from the CodeLens city&nbsp;builder; your city is built from your own&nbsp;repo.</p>
+    </div>
+  </section>
+
+  <!-- STOP 4 · TRAFFIC: lateral rail, museum labels -->
+  <section id="traffic" class="cl-traffic" data-sc-act="pan" data-sc-span="2.5" data-cl-stop="traffic">
+    <div data-sc-stage class="cl-traffic__stage">
+      <div class="cl-rail" data-sc-pan="0.04">
+        <div class="cl-rail__lead">
+          <h2 class="sc-display cl-h2">Read the traffic.</h2>
+          <p class="cl-body">Things move between buildings because the code says they can. The routes come from reading the files, not from watching the app&nbsp;run.</p>
+        </div>
+        <article class="cl-obj"><img src="assets/kit/bike.webp" width="374" height="848" alt="A cyclist on a blue bike"><h3>Bike</h3><dl><dt>Means</dt><dd>An import or a function call.</dd><dt>In my-app</dt><dd><code>Navbar.js</code> rides over to <code>Button.js</code>.</dd></dl></article>
+        <article class="cl-obj"><img src="assets/kit/car.webp" width="865" height="740" alt="A red car"><h3>Car</h3><dl><dt>Means</dt><dd>A call that leaves your code.</dd><dt>In my-app</dt><dd><code>useAuth.js</code> drives out to the Auth API.</dd></dl></article>
+        <article class="cl-obj"><img src="assets/kit/truck.webp" width="828" height="818" alt="A blue truck with a cream trailer"><h3>Truck</h3><dl><dt>Means</dt><dd>Heavy work: tests, builds, databases.</dd><dt>In my-app</dt><dd><code>main.yml</code> hauls both test files.</dd></dl></article>
+        <article class="cl-obj"><img src="assets/kit/bus.webp" width="854" height="786" alt="A yellow bus"><h3>Bus</h3><dl><dt>Means</dt><dd>An event many files react to.</dd><dt>In my-app</dt><dd>Loops the glowing main road downtown.</dd></dl></article>
+        <article class="cl-obj"><img src="assets/kit/gateway.webp" width="549" height="854" alt="A gateway arch with a raised barrier"><h3>Gateway</h3><dl><dt>Means</dt><dd>The edge of your code.</dd><dt>In my-app</dt><dd>GitHub, npm and the Auth API sit beyond it.</dd></dl></article>
+        <article class="cl-obj"><img src="assets/kit/vault.webp" width="858" height="842" alt="A grey vault building with a round door"><h3>Vault</h3><dl><dt>Means</dt><dd>Where secrets are kept. Names only, never values.</dd><dt>In my-app</dt><dd><code>.env.example</code>.</dd></dl></article>
+        <p class="cl-rail__end">Click anything that moves and it says what it carries, where from, and where&nbsp;to.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- STOP 5 · TALK: pointer. Click a building, it answers in first person -->
+  <section id="talk" class="cl-talk" data-sc-act="flow" data-cl-stop="talk">
+    <div class="cl-talk__head">
+      <h2 class="sc-display cl-h2">Click a building. It tells you what it&nbsp;does.</h2>
+      <p class="cl-body">In its own words, in one or two sentences. Ask a follow-up if it didn't land.</p>
+    </div>
+    <div class="cl-talk__scene">
+      <img class="cl-talk__img" src="assets/city/talk.webp" width="2400" height="1500" alt="Close view of downtown: the App.js and index.js towers, the Navbar apartment block, the useAuth office and small shops for the CSS files.">
+      <div class="cl-talk__spots" role="group" aria-label="Buildings you can ask">
+        <button type="button" class="cl-spot" data-talk="src/App.js" aria-pressed="true" style="--x:59.5%;--y:26%"><span>App.js</span></button>
+        <button type="button" class="cl-spot" data-talk="src/index.js" aria-pressed="false" style="--x:47.7%;--y:32%"><span>index.js</span></button>
+        <button type="button" class="cl-spot" data-talk="src/components/Navbar/Navbar.js" aria-pressed="false" style="--x:45.5%;--y:55%"><span>Navbar.js</span></button>
+        <button type="button" class="cl-spot" data-talk="src/hooks/useAuth.js" aria-pressed="false" style="--x:55.5%;--y:59.5%"><span>useAuth.js</span></button>
+        <button type="button" class="cl-spot" data-talk="src/components/Button/Button.css" aria-pressed="false" style="--x:33.8%;--y:63%"><span>Button.css</span></button>
+        <button type="button" class="cl-spot" data-talk="src/utils/helpers.js" aria-pressed="false" style="--x:65.4%;--y:65%"><span>helpers.js</span></button>
+      </div>
+      <figure class="cl-say" aria-live="polite">
+        <figcaption><code class="cl-say__file">src/App.js</code><span class="cl-say__tier">Tall building · core</span></figcaption>
+        <blockquote class="cl-say__q">I'm App.js, the tallest tower in town. I lay out the page, pull in the Navbar and Buttons, and ask useAuth who's logged&nbsp;in.</blockquote>
+        <p class="cl-say__note">Example answer, for illustration. In CodeLens, answers come from the AI key you&nbsp;paste.</p>
+      </figure>
+    </div>
+  </section>
+
+  <!-- STOP 6 · READ: pinned editor, the highlight walks App.js -->
+  <section id="read" class="cl-read" data-sc-act="pin" data-sc-span="2.2" data-cl-stop="read">
+    <div data-sc-stage class="cl-read__stage">
+      <h2 class="sc-display cl-h2 cl-read__h">Read <code>App.js</code> one line at a&nbsp;time.</h2>
+      <div class="cl-editor" aria-label="App.js, example code">
+        <div class="cl-editor__tabs"><span class="is-on">App.js</span><span>useAuth.js</span><span>Navbar.js</span><em>example</em></div>
+        <div class="cl-editor__body">
+          <div class="cl-editor__hl" aria-hidden="true"></div>
+<pre class="cl-code"><code><span class="ln">1</span><span class="k">import</span> React <span class="k">from</span> <span class="s">'react'</span>;
+<span class="ln">2</span><span class="k">import</span> Navbar <span class="k">from</span> <span class="s">'./components/Navbar/Navbar'</span>;
+<span class="ln">3</span><span class="k">import</span> Button <span class="k">from</span> <span class="s">'./components/Button/Button'</span>;
+<span class="ln">4</span><span class="k">import</span> { useAuth } <span class="k">from</span> <span class="s">'./hooks/useAuth'</span>;
+<span class="ln">5</span>
+<span class="ln">6</span><span class="k">export default function</span> <span class="f">App</span>() {
+<span class="ln">7</span>  <span class="k">const</span> { user, login, logout } = <span class="f">useAuth</span>();
+<span class="ln">8</span>
+<span class="ln">9</span>  <span class="k">return</span> (
+<span class="ln">10</span>    &lt;<span class="t">div</span> className=<span class="s">"app"</span>&gt;
+<span class="ln">11</span>      &lt;<span class="t">Navbar</span> user={user} onLogout={logout} /&gt;
+<span class="ln">12</span>      &lt;<span class="t">main</span>&gt;
+<span class="ln">13</span>        {user ? (
+<span class="ln">14</span>          &lt;<span class="t">h1</span>&gt;Welcome back, {user.name}&lt;/<span class="t">h1</span>&gt;
+<span class="ln">15</span>        ) : (
+<span class="ln">16</span>          &lt;<span class="t">Button</span> onClick={login}&gt;Log in&lt;/<span class="t">Button</span>&gt;
+<span class="ln">17</span>        )}
+<span class="ln">18</span>      &lt;/<span class="t">main</span>&gt;
+<span class="ln">19</span>    &lt;/<span class="t">div</span>&gt;
+<span class="ln">20</span>  );
+<span class="ln">21</span>}</code></pre>
+        </div>
+      </div>
+      <div class="cl-explain">
+        <div class="cl-explain__stack">
+          <div class="cl-ex" data-sc-cue="0 0.22 0 0.025" data-ex="0"><p class="cl-ex__where">Lines 1 to 4</p><p class="cl-ex__say">Four imports. React, the Navbar, the Button and the useAuth hook. In the city, these are the four bikes leaving the App.js&nbsp;tower.</p></div>
+          <div class="cl-ex" data-sc-cue="0.22 0.41 0.025 0.025" data-ex="1"><p class="cl-ex__where">Line 6</p><p class="cl-ex__say"><code>App</code> is a function that returns the whole page. Only <code>index.js</code> calls it, once, when the site&nbsp;starts.</p></div>
+          <div class="cl-ex" data-sc-cue="0.41 0.60 0.025 0.025" data-ex="2"><p class="cl-ex__where">Line 7</p><p class="cl-ex__say">Asks <code>useAuth</code> who is logged in, and gets back <code>login</code> and <code>logout</code>. This is the line that reaches toward the Auth API, through the&nbsp;Gateway.</p></div>
+          <div class="cl-ex" data-sc-cue="0.60 0.79 0.025 0.025" data-ex="3"><p class="cl-ex__where">Line 11</p><p class="cl-ex__say">The Navbar is drawn first. It is handed the user, plus a way to log&nbsp;out.</p></div>
+          <div class="cl-ex" data-sc-cue="0.79 1 0.025 0.04" data-ex="4"><p class="cl-ex__where">Lines 13 to 17</p><p class="cl-ex__say">Logged in? Greet them by name. Not logged in? Show one Log in button. That is the whole page&nbsp;logic.</p></div>
+        </div>
+        <label class="cl-ask"><span class="cl-sr">Ask about App.js (demo only, not connected)</span><input type="text" placeholder="Ask App.js anything (demo only)" disabled></label>
+        <p class="cl-explain__note">Example explanations. AI can be wrong, so treat answers as a guide, not&nbsp;gospel.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- STOP 7 · RUN: reveal (plain city wipes into heatmap) + real setup steps -->
+  <section id="run" class="cl-run" data-sc-act="flow" data-cl-stop="run">
+    <div class="cl-run__inner">
+      <figure class="cl-heat">
+        <div class="cl-heat__frame">
+          <img src="assets/city/full.webp" width="2400" height="1350" alt="The my-app city in its normal colours.">
+          <img class="cl-heat__coded" src="assets/city/full-coded.webp" width="2400" height="1350" alt="The same city coloured by module type." data-sc-reveal="left" data-sc-reveal-at="0.26 0.56">
+        </div>
+        <figcaption>
+          <span class="cl-heat__lead">Colour by module type, and the city reads as a heatmap. Off by default; switch to language any time.</span>
+          <span class="cl-key"><span><i style="--c:#2f5bd8"></i>core</span><span><i style="--c:#14b3a8"></i>ui</span><span><i style="--c:#ff7a1a"></i>api</span><span><i style="--c:#3fae3a"></i>utility</span><span><i style="--c:#f2c40f"></i>test</span><span><i style="--c:#8f949b"></i>config</span></span>
+        </figcaption>
+      </figure>
+      <div class="cl-run__copy" data-sc-in data-sc-stagger="60">
+        <h2 class="sc-display cl-h2">Then run it on your own machine.</h2>
+        <p class="cl-body">CodeLens reads the README, <code>package.json</code> and <code>.env.example</code>, and writes the steps in order. For my-app it would&nbsp;say:</p>
+        <ol class="cl-steps">
+          <li><span>Get the code</span><code>git clone https://github.com/your-name/my-app</code></li>
+          <li><span>Step inside</span><code>cd my-app</code></li>
+          <li><span>Install what package.json lists</span><code>npm install</code></li>
+          <li><span>Copy the vault's names, then fill in your values</span><code>cp .env.example .env</code></li>
+          <li><span>Start it</span><code>npm start</code></li>
+        </ol>
+        <p class="cl-run__more"><strong>Also on board:</strong> a guided tour that flies through the city in the order the code runs, and a flat 2D map that explains, on hover, why two files are&nbsp;linked.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- STOP 8 · YOUR REPO: the terminus. Pinned, holds, the CTA is a field -->
+  <section id="your-repo" class="cl-end" data-sc-act="pin" data-sc-span="1.3" data-cl-stop="your-repo">
+    <div data-sc-stage class="cl-end__stage">
+      <img class="cl-end__city" src="assets/city/full.webp" width="2400" height="1350" alt="">
+      <div class="cl-end__plate" data-sc-cue="0 1 0 0">
+        <h2 class="sc-display cl-h2">Last stop: your&nbsp;repo.</h2>
+        <form class="cl-form" id="import" action="building.html" method="get" novalidate>
+          <label class="cl-field cl-field--main"><span>Paste a public GitHub repo link</span>
+            <input class="cl-gh" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://github.com/you/your-project" aria-describedby="gh-status"></label>
+          <div class="cl-form__row">
+            <button type="submit" class="cl-btn cl-btn--big">Build my city</button>
+            <p class="cl-form__status" id="gh-status" role="status">Public repos only.</p>
+          </div>
+        </form>
+        <div class="cl-or"><span>or drop a .zip or project folder</span></div>
+        <div class="cl-drop" tabindex="-1" aria-label="Drop a .zip or a project folder here">
+          <div class="cl-drop__empty">
+            <p class="cl-drop__title">Drop a .zip or a project folder here</p>
+            <p class="cl-drop__btns">
+              <label class="cl-btn cl-btn--quiet">Choose .zip<input class="cl-sr" type="file" accept=".zip,application/zip" data-pick="zip"></label>
+              <label class="cl-btn cl-btn--quiet">Choose folder<input class="cl-sr" type="file" webkitdirectory multiple data-pick="dir"></label>
+            </p>
+          </div>
+          <div class="cl-drop__picked" hidden>
+            <p class="cl-drop__name"><span class="cl-drop__icon" aria-hidden="true"></span><code class="cl-drop__file"></code><span class="cl-drop__count"></span><button type="button" class="cl-drop__clear">Change</button></p>
+            <a class="cl-btn" href="building.html">Build my city</a>
+          </div>
+        </div>
+        <p class="cl-fine">A .zip or folder is read in your browser and never uploaded. Secrets files (.env, keys) are listed by name only, never opened. The city is built with no AI; AI only answers when you&nbsp;ask.</p>
+      </div>
+      <footer class="cl-foot">
+        <span>CodeLens · a college showcase project</span>
+        <span>Style inspired by a low-poly city model by abhi on Sketchfab (CC-BY) · Renders made with three.js&nbsp;(MIT)</span>
+      </footer>
+    </div>
+  </section>
+
+</main>
+
+<script src="scrollcraft.js"></script>
+<script src="app/codelens-bridge.js"></script>
+<script src="codelens.js"></script>
+</body>
+</html>

@@ -1,0 +1,97 @@
+{
+ "src/index.js": [
+  47.68,
+  48.97,
+  14.51
+ ],
+ "src/App.js": [
+  59.51,
+  52.13,
+  -1.5
+ ],
+ "src/components/Navbar/Navbar.js": [
+  45.49,
+  63.84,
+  46.56
+ ],
+ "src/components/Navbar/Navbar.css": [
+  42.08,
+  70.35,
+  63.83
+ ],
+ "src/components/Button/Button.js": [
+  37.64,
+  60.33,
+  54.42
+ ],
+ "src/components/Button/Button.css": [
+  33.76,
+  66.54,
+  60.28
+ ],
+ "src/hooks/useAuth.js": [
+  55.53,
+  68.07,
+  50.74
+ ],
+ "src/utils/helpers.js": [
+  65.39,
+  71.11,
+  58.04
+ ],
+ "public/index.html": [
+  27.53,
+  55.26,
+  49.76
+ ],
+ "public/favicon.ico": [
+  23.84,
+  53.87,
+  48.24
+ ],
+ "public/assets/logo.svg": [
+  16.7,
+  51.23,
+  45.77
+ ],
+ "public/assets/banner.png": [
+  19.95,
+  52.45,
+  47.1
+ ],
+ "tests/App.test.js": [
+  26.51,
+  44.3,
+  39.51
+ ],
+ "tests/helpers.test.js": [
+  31.9,
+  46.12,
+  41.22
+ ],
+ ".github/workflows/main.yml": [
+  94.63,
+  65.8,
+  46.4
+ ],
+ "package.json": [
+  88.3,
+  79.23,
+  62.97
+ ],
+ "README.md": [
+  79.75,
+  75.1,
+  68.21
+ ],
+ ".gitignore": [
+  97.12,
+  81.72,
+  74.14
+ ],
+ ".env.example": [
+  95.05,
+  93.16,
+  83.04
+ ]
+}
