@@ -51,7 +51,14 @@ function classOf(mesh, m) {
   return m.isMeshBasicMaterial ? 'basic' : 'lambert';
 }
 /** Flatten a group into local-space chunks: [{cls, mat, cast, receive, pos, nrm, col, idx}] */
-function flatten(root, minPart = 0) {
+/* Night mode: window glass panes light up. Glass is found by its colour (the kit's glass /
+   window palette, plus a building's own glassColor) on meshes that cast no shadow. Each pane
+   gets a stable random value; the baker turns it into lit / dark and a warm tint per pane. */
+const LAMP = 'lamp';
+const GLASS = new Set(['#0584a8', '#38829e', '#f5edcd', '#fee11c', '#a9d3dc', '#e8b7c0']);
+const hexOf = (m) => m.color ? '#' + m.color.getHexString() : '';
+function flatten(root, minPart = 0, glass = null) {
+  let pane = 0;
   root.updateMatrixWorld(true);
   const pb = new THREE.Box3(), ps = new THREE.Vector3();
   const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
@@ -64,7 +71,10 @@ function flatten(root, minPart = 0) {
     const cls = classOf(mesh, m);
     const key = cls + '|' + (mesh.castShadow ? 1 : 0) + (mesh.receiveShadow ? 1 : 0);
     let c = out.get(key);
-    if (!c) { c = { cls, mat: m, cast: mesh.castShadow, receive: mesh.receiveShadow, pos: [], nrm: [], col: [], idx: [], uv: [] }; out.set(key, c); }
+    if (!c) { c = { cls, mat: m, cast: mesh.castShadow, receive: mesh.receiveShadow, pos: [], nrm: [], col: [], idx: [], uv: [], win: [] }; out.set(key, c); }
+    // window seed: 0 = not a window; lamp bulbs (unlit basic material) = 2 = always lit at night
+    const hx = hexOf(m), isWin = !mesh.castShadow && cls === 'lambert' && (GLASS.has(hx) || (glass && glass.has(hx)));
+    const seed = isWin ? 0.001 + ((Math.imul(++pane + 7, 2654435761) >>> 0) % 997) / 1000 : (cls === 'basic' && glass === LAMP ? 2 : 0);
     const geo = mesh.geometry, P = geo.attributes.position, Nn = geo.attributes.normal, UV = geo.attributes.uv;
     if (!P) return;
     m4.multiplyMatrices(inv, mesh.matrixWorld); n3.getNormalMatrix(m4);
@@ -73,24 +83,46 @@ function flatten(root, minPart = 0) {
     for (let i = 0; i < P.count; i++) {
       v.fromBufferAttribute(P, i).applyMatrix4(m4); c.pos.push(v.x, v.y, v.z);
       if (Nn) { v.fromBufferAttribute(Nn, i).applyMatrix3(n3).normalize(); c.nrm.push(v.x, v.y, v.z); } else c.nrm.push(0, 1, 0);
-      c.col.push(tmpC.r, tmpC.g, tmpC.b);
+      c.col.push(tmpC.r, tmpC.g, tmpC.b); c.win.push(seed);
       if (cls.startsWith('mat:')) c.uv.push(UV ? UV.getX(i) : 0, UV ? UV.getY(i) : 0);
     }
     if (geo.index) for (let i = 0; i < geo.index.count; i++) c.idx.push(base + geo.index.getX(i));
     else for (let i = 0; i < P.count; i++) c.idx.push(base + i);
   });
-  return [...out.values()];
+  // packed typed arrays: the flat cache holds one entry per model / building, so plain JS number
+  // arrays here cost about 4x the memory (118 MB of heap on a 350-building city before this)
+  return [...out.values()].map(c => ({ ...c, pos: new Float32Array(c.pos), nrm: new Float32Array(c.nrm), col: new Float32Array(c.col),
+    idx: new Uint32Array(c.idx), uv: new Float32Array(c.uv), win: c.win.some(w => w) ? new Float32Array(c.win) : null }));
 }
 const flatCache = new Map();
-function flatOf(key, make) {
+function flatOf(key, make, glass = null) {
   let f = flatCache.get(key);
-  if (!f) { const g = make(); f = flatten(g); g.traverse(o => o.isMesh && o.geometry.dispose()); flatCache.set(key, f); }
+  if (!f) { const g = make(); f = flatten(g, 0, glass); g.traverse(o => o.isMesh && o.geometry.dispose()); flatCache.set(key, f); }
   return f;
 }
-const LAMBERT = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
-const BASIC = new THREE.MeshBasicMaterial({ vertexColors: true });
+const WIN_TONES = [[255, 214, 140], [255, 196, 110], [255, 236, 190], [210, 228, 255], [255, 178, 96]];
+/* One shared uniform drives the night look of every baked mesh: 0 = day, 1 = night.
+   Windows and lamp bulbs add their 'glow' vertex colour as emitted light, so lighting a whole
+   city costs nothing extra per frame (no per-window lights, no extra draw calls). */
+export const NIGHT = { value: 0 };
+function nightPatch(mat, basic) {
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.uNight = NIGHT;
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec3 glow;\nvarying vec3 vGlow;')
+      .replace('#include <color_vertex>', '#include <color_vertex>\nvGlow = glow;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float uNight;\nvarying vec3 vGlow;');
+    sh.fragmentShader = basic
+      ? sh.fragmentShader.replace('#include <opaque_fragment>', 'outgoingLight = mix(outgoingLight, max(outgoingLight * 0.26, vGlow * 1.25), uNight);   // unlit parts (artery glow) dim at night: roads never glow\n#include <opaque_fragment>')
+      : sh.fragmentShader.replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vGlow * vGlow * uNight * 1.35;');
+  };
+  mat.customProgramCacheKey = () => 'cl-night' + (basic ? 'b' : 'l');
+  return mat;
+}
+const LAMBERT = nightPatch(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }), false);
+const BASIC = nightPatch(new THREE.MeshBasicMaterial({ vertexColors: true }), true);
 
 /** Collects placed chunks and builds merged meshes. */
+function dropArray() { this.array = null; }
 class Baker {
   constructor() { this.b = new Map(); this.m = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.e = new THREE.Euler(); this.n = new THREE.Matrix3(); }
   add(chunks, x, y, z, ry = 0, s = 1) {
@@ -110,6 +142,8 @@ class Baker {
     for (const t of this.b.values()) {
       const pos = new Float32Array(t.verts * 3), nrm = new Float32Array(t.verts * 3), col = new Uint8Array(t.verts * 3);
       const uvs = t.c.cls.startsWith('mat:') ? new Float32Array(t.verts * 2) : null;
+      const glow = new Uint8Array(t.verts * 3);   // night window / lamp light (vertex colour of the emitted light)
+      let anyGlow = false;
       const big = t.verts > 65535, idx = big ? new Uint32Array(t.tris) : new Uint16Array(t.tris);
       let vo = 0, io = 0;
       for (const { c, me, ne } of t.parts) {
@@ -122,6 +156,18 @@ class Baker {
           col[o] = Math.round(c.col[i * 3] * 255); col[o + 1] = Math.round(c.col[i * 3 + 1] * 255); col[o + 2] = Math.round(c.col[i * 3 + 2] * 255);
           if (uvs) { uvs[(vo + i) * 2] = c.uv[i * 2]; uvs[(vo + i) * 2 + 1] = c.uv[i * 2 + 1]; }
         }
+        if (c.win) {
+          const ph = ((Math.imul(Math.round(me[12] * 7.3) + 31, 73856093) ^ Math.imul(Math.round(me[14] * 5.1) + 17, 19349663)) >>> 0) / 4294967296;
+          for (let i = 0; i < n; i++) {
+            const w = c.win[i]; if (!w) continue;
+            const o = (vo + i) * 3;
+            if (w === 2) { glow[o] = 255; glow[o + 1] = 226; glow[o + 2] = 150; anyGlow = true; continue; }
+            const u = (w + ph) % 1;                              // per pane, per building: about 68% lit
+            if (u > 0.68) continue;
+            const tone = WIN_TONES[Math.floor(u * 97) % WIN_TONES.length], k = 0.55 + 0.45 * ((u * 13.7) % 1);
+            glow[o] = tone[0] * k; glow[o + 1] = tone[1] * k; glow[o + 2] = tone[2] * k; anyGlow = true;
+          }
+        }
         for (let i = 0; i < c.idx.length; i++) idx[io + i] = c.idx[i] + vo;
         vo += n; io += c.idx.length;
       }
@@ -130,9 +176,12 @@ class Baker {
       g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
       g.setAttribute('color', new THREE.BufferAttribute(col, 3, true));
       if (uvs) g.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+      if (anyGlow || t.c.cls === 'lambert' || t.c.cls === 'basic') g.setAttribute('glow', new THREE.BufferAttribute(glow, 3, true));
       g.setIndex(new THREE.BufferAttribute(idx, 1));
       g.computeBoundingSphere();
       const mat = t.c.cls === 'lambert' ? LAMBERT : t.c.cls === 'basic' ? BASIC : t.c.mat;
+      // once on the GPU the CPU copies are not needed (picking uses the proxy boxes): free them
+      for (const a of [...Object.values(g.attributes), g.index]) a.onUpload(dropArray);
       const mesh = new THREE.Mesh(g, mat);
       mesh.castShadow = FEATURES.shadows && t.c.cast; mesh.receiveShadow = FEATURES.shadows && t.c.receive; mesh.name = name;
       parent.add(mesh); meshes.push(mesh);
@@ -168,12 +217,17 @@ class VehiclePool {
 }
 
 /* ------------------------------------------------------------------ the city */
-export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0 = 'none', labels: lb0 = FEATURES.folderLabels } = {}) {
+export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0 = 'none', labels: lb0 = FEATURES.folderLabels, night: night0 = false } = {}) {
   let colorBy = FEATURES.colorCoding ? cb0 : 'none', showLabels = FEATURES.folderLabels && lb0;
-  let running = true, need = true, raf = 0, frames = 0, simT = 0, last = performance.now();
-  const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
-  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.75));
+  let running = true, need = true, raf = 0, frames = 0, simT = 0, last = performance.now(), inTick = false, labelsDirty = true;
+  // No preserveDrawingBuffer (it forces a full-buffer copy every frame); pixel ratio capped at 1.5.
+  const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+  const DPR_FULL = Math.min(devicePixelRatio || 1, 1.5);
+  renderer.setPixelRatio(DPR_FULL);
   renderer.shadowMap.enabled = FEATURES.shadows; renderer.shadowMap.type = THREE.PCFShadowMap;
+  // The city is static, so the sun's shadow map is drawn once (and again only when the
+  // buildings are rebaked), not every frame. Vehicles cast no shadows.
+  renderer.shadowMap.autoUpdate = false; renderer.shadowMap.needsUpdate = true;
   if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
   host.appendChild(renderer.domElement);
   renderer.domElement.style.display = 'block';
@@ -184,12 +238,12 @@ export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0
   scene.background = new THREE.Color(0xdfe4ea);
   const B = plan.bounds, W0 = B.x1 - B.x0, D0 = B.z1 - B.z0, cx = (B.x0 + B.x1) / 2, cz = (B.z0 + B.z1) / 2, span = Math.max(W0, D0);
   scene.fog = new THREE.Fog(0xdfe4ea, span * 1.4 + 120, span * 2.6 + 300);
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8f99, 2.0));
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x8a8f99, 2.0); scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xffffff, 1.7);
   const SUN_DIR = new THREE.Vector3(14, 26, 12).normalize();
   sun.position.copy(SUN_DIR).multiplyScalar(span + 60).add(new THREE.Vector3(cx, 0, cz));
   sun.target.position.set(cx, 0, cz);
-  sun.castShadow = FEATURES.shadows; sun.shadow.mapSize.set(4096, 4096);
+  sun.castShadow = FEATURES.shadows; sun.shadow.mapSize.set(2048, 2048);
   const sh = span * 0.62 + 10;
   Object.assign(sun.shadow.camera, { left: -sh, right: sh, top: sh, bottom: -sh, near: 1, far: span * 2.6 + 200 });
   sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.05;
@@ -205,11 +259,15 @@ export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0
   const staticG = new THREE.Group(); scene.add(staticG);
   const bk = new Baker();
   const staticStats = {};
+  // Fine detail (trees, grass tufts, flowers, benches, lamps) is baked separately so the
+  // quality governor can hide it while the camera moves on big cities.
+  const DETAIL = new Set(['tree', 'grass', 'flowers', 'bench', 'lamp', 'fountain']);
+  const bkD = new Baker();
   const place = (key, make, x, z, ry = 0, y = 0) => {
-    const f = flatOf(key, make), k = key.split(':')[0];
+    const k = key.split(':')[0], f = flatOf(key, make, k === 'lamp' ? LAMP : null);
     const st = staticStats[k] || (staticStats[k] = { n: 0, tris: 0 });
     st.n++; for (const c of f) st.tris += c.idx.length / 3;
-    bk.add(f, x, y, z, ry);
+    (DETAIL.has(k) ? bkD : bk).add(f, x, y, z, ry);
   };
   const art = plan.artery, gw = plan.gateway;
   const artRow = art ? art.line : -1;
@@ -237,6 +295,7 @@ export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0
   // Everything static in it is baked with the city; only the moving flow pulses stay live,
   // as one instanced mesh (same look, one draw call).
   let artery = null;
+  const arteryMats = [];   // unlit glow materials: dimmed at night so roads never glow
   if (art && FEATURES.glowArtery) {
     const length = art.x1 - art.x0;
     const g = C.createCommonPath({ length, intensity: 0.95, width: 14 });
@@ -245,13 +304,13 @@ export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0
     g.traverse(m => { if (m.isMesh && Math.abs(m.position.y - 0.235) < 1e-3) pulses.push(m); });
     pulses.forEach(m => m.parent.remove(m));
     g.position.set((art.x0 + art.x1) / 2, 0, art.z); g.rotation.y = Math.PI / 2;
-    g.traverse(m => { if (m.isMesh) m.receiveShadow = true; });
+    g.traverse(m => { if (m.isMesh) { m.receiveShadow = true; if (m.material?.isMeshBasicMaterial && !arteryMats.some(a => a.m === m.material)) arteryMats.push({ m: m.material, c: m.material.color.clone(), o: m.material.opacity }); } });
     bk.add(flatten(g), g.position.x, 0, g.position.z, g.rotation.y);
     if (pulses.length) {
       const im = new THREE.InstancedMesh(pulses[0].geometry, pulses[0].material, pulses.length);
       im.frustumCulled = false; scene.add(im);
       const n = pulses.length, o = new THREE.Object3D();
-      artery = { userData: { setTime(t) {
+      artery = { userData: { im, setTime(t) {
         for (let i = 0; i < n; i++) {
           const z = ((t * 8 + (i * length) / n) % length) - length / 2;   // CommonPath's own formula (flowSpeed 8)
           o.position.set(g.position.x + z, 0.235, art.z); o.rotation.set(0, Math.PI / 2, 0); o.updateMatrix(); im.setMatrixAt(i, o.matrix);
@@ -334,12 +393,15 @@ export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0
   if (FEATURES.lamps) for (const l of plan.lamps) place('lamp', () => C.createStreetLamp(), l.x, l.z, l.ry, 0);
   if (FEATURES.trees) for (const t of plan.trees) treeAt(t.x, t.z, t.variant, t.seed, 0);
   bk.build(staticG, 'static');
+  const detailG = new THREE.Group(); scene.add(detailG); bkD.build(detailG, 'detail');
 
   /* ---- buildings: baked into a few meshes, rebuilt when colour-coding changes */
   const bGroup = new THREE.Group(); scene.add(bGroup);
+  const bLo = new THREE.Group(); bLo.visible = false; scene.add(bLo);   // low-detail buildings, shown only while the camera moves on big cities
   const byId = new Map(plan.buildings.map((b, i) => [b.id, i]));
   const info = plan.buildings.map(() => ({ box: new THREE.Box3(), anchor: new THREE.Vector3(), h: 1 }));
   // Level of detail: big cities drop the smallest parts (bolts, rails, small panes) that vanish at city zoom.
+  let sceneTris = 0, bigCity = false;
   const nB = plan.buildings.length, minPart = nB > 450 ? 0.9 : nB > 150 ? 0.5 : 0;
   function buildBuildings() {
     bGroup.traverse(o => o.isMesh && o.geometry.dispose()); bGroup.clear();
@@ -351,7 +413,7 @@ export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0
         const g = makeBuilding(b, colorBy);
         const lb = new THREE.Box3().setFromObject(g);
         size = { x0: lb.min.x, x1: lb.max.x, z0: lb.min.z, z1: lb.max.z, h: lb.max.y };
-        f = flatten(g, minPart); g.traverse(o => o.isMesh && o.geometry.dispose());
+        f = flatten(g, minPart, b.opts?.glassColor ? new Set(['#' + new THREE.Color(b.opts.glassColor).getHexString()]) : null); g.traverse(o => o.isMesh && o.geometry.dispose());
         flatCache.set(key, f); flatCache.set(key + ':size', size);
       }
       bb.add(f, b.x, b.y, b.z, b.ry);
@@ -363,6 +425,23 @@ export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0
       info[i].anchor.set(b.x, b.y + Math.min(size.h * 0.75, 20) + 1.5, b.z);
     });
     bb.build(bGroup, 'buildings');
+    // Big cities also get a low-detail bake (only walls, roofs and big parts) for camera motion.
+    const tris = (g) => { let t = 0; g.traverse(o => { if (o.isMesh) t += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; }); return t; };
+    sceneTris = tris(bGroup) + tris(staticG) + tris(detailG);
+    bigCity = sceneTris > 350000;
+    bLo.traverse(o => o.isMesh && o.geometry.dispose()); bLo.clear();
+    if (bigCity) {
+      const lo = new Baker();
+      plan.buildings.forEach((b) => {
+        const key = `blo:${b.comp}:${JSON.stringify(b.opts)}:${colorBy}:${colorBy === 'none' ? '' : b.moduleType + b.language}`;
+        let f = flatCache.get(key);
+        if (!f) { const g = makeBuilding(b, colorBy); f = flatten(g, 2.2); g.traverse(o => o.isMesh && o.geometry.dispose()); flatCache.set(key, f); }
+        lo.add(f, b.x, b.y, b.z, b.ry);
+      });
+      lo.build(bLo, 'buildings-lo');
+      bLo.traverse(o => { if (o.isMesh) { o.castShadow = false; } });
+    }
+    renderer.shadowMap.needsUpdate = true;
     requestRender();
   }
 
@@ -523,14 +602,24 @@ export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0
     items.forEach((it, k) => { set(o, it); o.updateMatrix(); im.setMatrixAt(k, o.matrix); if (it.color) im.setColorAt(k, it.color); });
     hl.add(im); return im;
   }
+  // highlight materials are made once and reused (hovering never allocates materials)
+  const HLM = {
+    shell: new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.18, depthWrite: false }),
+    ring: new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.85, depthWrite: false }),
+    edge: new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.95, depthTest: false }),
+    tube: new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.92, depthTest: false }),
+    end: new THREE.MeshBasicMaterial({ depthTest: false }),
+    dot: new THREE.MeshBasicMaterial({ color: '#ffffff', depthTest: false }),
+  };
+  const HL_MATS = new Set(Object.values(HLM));
   function flushHighlight() {
     if (hlShells.length) {
-      instanced(UNIT_BOX, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.18, depthWrite: false }), hlShells, (o, h) => { o.position.copy(h.c); o.scale.copy(h.s); });
-      instanced(UNIT_RING, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.85, depthWrite: false }), hlShells, (o, h) => { o.position.set(h.c.x, h.y, h.c.z); o.scale.set(h.r, 1, h.r); });
+      instanced(UNIT_BOX, HLM.shell, hlShells, (o, h) => { o.position.copy(h.c); o.scale.copy(h.s); });
+      instanced(UNIT_RING, HLM.ring, hlShells, (o, h) => { o.position.set(h.c.x, h.y, h.c.z); o.scale.set(h.r, 1, h.r); });
       const ep = UNIT_EDGES.attributes.position, n = ep.count, pos = new Float32Array(n * 3 * hlShells.length), col = new Float32Array(pos.length);
       hlShells.forEach((h, k) => { for (let v = 0; v < n; v++) { const o = (k * n + v) * 3; pos[o] = ep.getX(v) * h.s.x + h.c.x; pos[o + 1] = ep.getY(v) * h.s.y + h.c.y; pos[o + 2] = ep.getZ(v) * h.s.z + h.c.z; col[o] = h.color.r; col[o + 1] = h.color.g; col[o + 2] = h.color.b; } });
       const eg = new THREE.BufferGeometry(); eg.setAttribute('position', new THREE.BufferAttribute(pos, 3)); eg.setAttribute('color', new THREE.BufferAttribute(col, 3));
-      const e = new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.95, depthTest: false })); e.renderOrder = 11; hl.add(e);
+      const e = new THREE.LineSegments(eg, HLM.edge); e.renderOrder = 11; hl.add(e);
     }
     if (hlArcs.length) {
       const parts = hlArcs.map(h => ({ g: new THREE.TubeGeometry(h.curve, 48, 0.32, 6, false), c: h.color }));
@@ -543,19 +632,22 @@ export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0
         vo += g.attributes.position.count; io += gi.length; g.dispose();
       }
       const tg = new THREE.BufferGeometry(); tg.setAttribute('position', new THREE.BufferAttribute(pos, 3)); tg.setAttribute('color', new THREE.BufferAttribute(col, 3)); tg.setIndex(new THREE.BufferAttribute(idx, 1));
-      const t = new THREE.Mesh(tg, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.92, depthTest: false })); t.renderOrder = 12; t.frustumCulled = false; hl.add(t);
+      const t = new THREE.Mesh(tg, HLM.tube); t.renderOrder = 12; t.frustumCulled = false; hl.add(t);
       const ends = []; for (const h of hlArcs) ends.push({ p: h.a, color: h.color }, { p: h.b, color: h.color });
-      const em = instanced(DOT, new THREE.MeshBasicMaterial({ depthTest: false }), ends, (o, h) => { o.position.copy(h.p); o.scale.setScalar(0.55); }); em.renderOrder = 12;
+      const em = instanced(DOT, HLM.end, ends, (o, h) => { o.position.copy(h.p); o.scale.setScalar(0.55); }); em.renderOrder = 12;
       for (const h of hlArcs) for (let k = 0; k < 2; k++) dots.push({ curve: h.curve, k });
-      dotIM = instanced(DOT, new THREE.MeshBasicMaterial({ color: '#ffffff', depthTest: false }), dots, (o) => o.scale.setScalar(0.75)); dotIM.renderOrder = 13;
+      dotIM = instanced(DOT, HLM.dot, dots, (o) => o.scale.setScalar(0.75)); dotIM.renderOrder = 13;
       updateDots(simT);
     }
     hlShells = []; hlArcs = [];
   }
   const gateAnchor = new THREE.Vector3(gw.x, 8, gw.z);
   const SHARED_HL = new Set([UNIT_BOX, UNIT_EDGES, UNIT_RING, DOT]);
+  let hlId;
   function highlight(id) {
-    hl.traverse(o => { if (o.geometry && !SHARED_HL.has(o.geometry)) o.geometry.dispose(); o.material?.dispose?.(); if (o.isInstancedMesh) o.dispose(); });
+    if (id === hlId && hl.children.length) return;   // same building: nothing to rebuild
+    hlId = id;
+    hl.traverse(o => { if (o.geometry && !SHARED_HL.has(o.geometry)) o.geometry.dispose(); if (o.material && !HL_MATS.has(o.material)) o.material.dispose?.(); if (o.isInstancedMesh) o.dispose(); });
     hl.clear(); dots.length = 0; dotIM = null; hlShells = []; hlArcs = [];
     const i = byId.get(id); if (i === undefined) { requestRender(); return; }
     shell(i, COLORS.self, true);
@@ -594,7 +686,8 @@ export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0
     .map(({ L: [t, x, z, cls] }) => { const d = document.createElement('div'); d.className = 'glabel ' + (cls || ''); const sh = shortLabel(t); d.textContent = sh; d.title = t; overlay.appendChild(d); return { d, v: new THREE.Vector3(x, 0.4, z), w: sh.length * (cls === 'big' ? 7.6 : 6.6) + 14, gate: cls === 'gate' }; });
   const pv = new THREE.Vector3();
   function updateLabels() {
-    overlay.style.display = showLabels ? 'block' : 'none'; if (!showLabels) return;
+    labelsDirty = false;
+    const od = showLabels ? 'block' : 'none'; if (overlay.style.display !== od) overlay.style.display = od; if (!showLabels) return;
     const w = host.clientWidth, h = host.clientHeight, placed = [];
     for (const L of labelEls) {
       pv.copy(L.v).project(cam);
@@ -606,7 +699,8 @@ export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0
         if (r.x0 < 2 || r.x1 > w - 2 || r.y0 < 2 || r.y1 > h - 2) vis = false;   // never clip at the canvas edge
         else if (placed.some(p => r.x0 < p.x1 && r.x1 > p.x0 && r.y0 < p.y1 && r.y1 > p.y0)) vis = false; else placed.push(r);
       }
-      L.d.style.display = vis ? 'block' : 'none'; if (vis) L.d.style.transform = `translate(-50%,-50%) translate(${x}px,${y}px)`;
+      const disp = vis ? 'block' : 'none'; if (L.disp !== disp) { L.d.style.display = disp; L.disp = disp; }
+      if (vis) { const tf = `translate(-50%,-50%) translate(${x.toFixed(1)}px,${y.toFixed(1)}px)`; if (L.tf !== tf) { L.d.style.transform = tf; L.tf = tf; } }
     }
   }
 
@@ -637,6 +731,61 @@ export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0
   const ro = new ResizeObserver(resize); ro.observe(host);
   resize(); fitView();
 
+  /* ---- day / night (FEATURES.dayNight): sun by day, moon + stars + lit windows + lamps by night */
+  const DAY = { bg: new THREE.Color(0xdfe4ea), sky: new THREE.Color(0xffe9c7), hemiS: new THREE.Color(0xffffff), hemiG: new THREE.Color(0x8a8f99), hemi: 2.0, key: 1.7, keyC: new THREE.Color(0xffffff), ground: new THREE.Color(0xc9d1bd), base: new THREE.Color(0xbfc4ca) };
+  const NITE = { bg: new THREE.Color(0x0b1424), sky: new THREE.Color(0x0b1424), hemiS: new THREE.Color(0x7d8cc4), hemiG: new THREE.Color(0x1a1d26), hemi: 0.55, key: 0.42, keyC: new THREE.Color(0xa9bcff), ground: new THREE.Color(0x5d6a5a), base: new THREE.Color(0x6b7078) };
+  const sky = new THREE.Group(); sky.visible = !!FEATURES.dayNight; scene.add(sky);
+  const disc = (r, color, opacity = 1) => new THREE.Mesh(new THREE.SphereGeometry(r, 24, 16), new THREE.MeshBasicMaterial({ color, fog: false, transparent: opacity < 1, opacity, depthWrite: opacity === 1 }));
+  const sunBall = disc(1, 0xffd36b), sunHalo = disc(1.9, 0xffe7a8, 0.28), moonBall = disc(0.8, 0xe9eefc), moonHalo = disc(1.6, 0x9fb4ff, 0.16);
+  const sunG = new THREE.Group(); sunG.add(sunBall, sunHalo); const moonG = new THREE.Group(); moonG.add(moonBall, moonHalo);
+  sky.add(sunG, moonG);
+  const skyLight = new THREE.DirectionalLight(0xfff0d0, 0.35); scene.add(skyLight, skyLight.target);   // soft light from the sun / moon disc
+  // stars: one Points draw call on a dome around the city
+  const starGeo = new THREE.BufferGeometry(); { const n = 900, a = new Float32Array(n * 3); let h = 1234567; const rnd = () => ((h = Math.imul(h ^ (h >>> 15), 2246822507) ^ Math.imul(h ^ (h >>> 13), 3266489909)) >>> 0) / 4294967296; for (let i = 0; i < n; i++) { const az = rnd() * Math.PI * 2, el = Math.asin(0.04 + rnd() * 0.94); a[i * 3] = Math.cos(el) * Math.cos(az); a[i * 3 + 1] = Math.sin(el); a[i * 3 + 2] = Math.cos(el) * Math.sin(az); } starGeo.setAttribute('position', new THREE.BufferAttribute(a, 3)); }
+  const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 1.8, sizeAttenuation: false, fog: false, transparent: true, opacity: 0, depthWrite: false }));
+  sky.add(stars);
+  // lamp glow: soft additive halos at every lamp head (one Points draw call; only at night; roads stay plain)
+  const glowTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'), r = g.createRadialGradient(32, 32, 0, 32, 32, 32); r.addColorStop(0, 'rgba(255,230,160,1)'); r.addColorStop(0.35, 'rgba(255,210,120,0.45)'); r.addColorStop(1, 'rgba(255,200,100,0)'); g.fillStyle = r; g.fillRect(0, 0, 64, 64); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
+  const lampPts = new Float32Array(((FEATURES.lamps && plan.lamps) || []).length * 3);
+  (FEATURES.lamps ? plan.lamps : []).forEach((l, i) => { lampPts[i * 3] = l.x + Math.sin(l.ry || 0) * 1.4; lampPts[i * 3 + 1] = 6.2; lampPts[i * 3 + 2] = l.z + Math.cos(l.ry || 0) * 1.4; });
+  const lampGeo = new THREE.BufferGeometry(); lampGeo.setAttribute('position', new THREE.BufferAttribute(lampPts, 3));
+  const lampGlow = new THREE.Points(lampGeo, new THREE.PointsMaterial({ map: glowTex, size: 5.5, sizeAttenuation: true, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, color: 0xffd890 }));
+  lampGlow.visible = false; scene.add(lampGlow);
+  let qVis = true, night = 0, nightTo = 0, nightFrom = 0, nightT0 = 0;
+  const NIGHT_MS = 900;
+  function placeSky() {
+    // the sun / moon sit low over the far side of the city, inside the default view
+    const fwd = new THREE.Vector3().subVectors(controls.target, cam.position).setY(0).normalize();
+    const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0));
+    const R = span * 1.25 + 90, p = controls.target.clone().addScaledVector(fwd, R).addScaledVector(right, -R * 0.42); p.y = R * 0.42;
+    const r = R * 0.055;
+    sunG.position.copy(p); sunG.scale.setScalar(r); moonG.position.copy(p); moonG.scale.setScalar(r);
+    skyLight.position.copy(p); skyLight.target.position.copy(controls.target);
+    stars.position.copy(controls.target); stars.scale.setScalar(span * 2.2 + 400);
+  }
+  function applyNight(k) {
+    night = k; NIGHT.value = k;
+    scene.background.copy(DAY.bg).lerp(NITE.bg, k); scene.fog.color.copy(scene.background);
+    hemi.color.copy(DAY.hemiS).lerp(NITE.hemiS, k); hemi.groundColor.copy(DAY.hemiG).lerp(NITE.hemiG, k); hemi.intensity = DAY.hemi + (NITE.hemi - DAY.hemi) * k;
+    sun.color.copy(DAY.keyC).lerp(NITE.keyC, k); sun.intensity = DAY.key + (NITE.key - DAY.key) * k;
+    ground.material.color.copy(DAY.ground).lerp(NITE.ground, k); cityBase.material.color.copy(DAY.base).lerp(NITE.base, k);
+    skyLight.color.set(k < 0.5 ? 0xfff0d0 : 0xb8c6ff); skyLight.intensity = 0.35 * (1 - k) + 0.12 * k;
+    sunG.visible = k < 0.98; sunBall.material.opacity = 1 - k; sunBall.material.transparent = k > 0; sunHalo.material.opacity = 0.28 * (1 - k);
+    moonG.visible = k > 0.02; moonBall.material.transparent = k < 1; moonBall.material.opacity = k; moonHalo.material.opacity = 0.16 * k;
+    stars.material.opacity = k; stars.visible = k > 0.02;
+    lampGlow.visible = k > 0.02; lampGlow.material.opacity = 0.85 * k;
+    for (const a of arteryMats) { a.m.color.copy(a.c).multiplyScalar(1 - 0.82 * k); a.m.opacity = a.o * (1 - 0.85 * k); }
+    if (artery?.userData.im) artery.userData.im.visible = qVis && k < 0.5;
+    labelsDirty = true;
+  }
+  function setNight(on, animate = true) {
+    if (!FEATURES.dayNight) on = false;
+    nightTo = on ? 1 : 0; nightFrom = night; nightT0 = performance.now();
+    if (!animate) applyNight(nightTo);
+    requestRender();
+  }
+
+  /* ---- picking + hover: at most once per frame, never while a button is down or the camera moves */
   const ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
   function pick(ev) {
     const r = renderer.domElement.getBoundingClientRect();
@@ -645,48 +794,117 @@ export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0
     const hit = ray.intersectObject(proxy, false)[0];
     return hit && hit.instanceId !== undefined ? plan.buildings[hit.instanceId].id : null;
   }
-  let hovered = null, selected = null;
-  renderer.domElement.addEventListener('pointermove', (ev) => {
+  let hovered = null, selected = null, pendingMove = null, dragging = false;
+  function hoverAt(ev) {
     const p = pick(ev);
-    if (p && FEATURES.tooltip) { const r = host.getBoundingClientRect(), b = B_(p); tip.style.display = 'block'; tip.style.left = (ev.clientX - r.left + 14) + 'px'; tip.style.top = (ev.clientY - r.top + 12) + 'px'; tip.innerHTML = ''; const bb = document.createElement('b'); bb.textContent = b.name; const sp = document.createElement('span'); sp.textContent = b.members ? b.dir + '/' : b.id; tip.append(bb, sp); } else tip.style.display = 'none';
+    if (p && FEATURES.tooltip) { const r = host.getBoundingClientRect(), b = B_(p); tip.style.display = 'block'; tip.style.left = (ev.clientX - r.left + 14) + 'px'; tip.style.top = (ev.clientY - r.top + 12) + 'px'; tip.replaceChildren(); const bb = document.createElement('b'); bb.textContent = b.name; const sp = document.createElement('span'); sp.textContent = b.members ? b.dir + '/' : b.id; tip.append(bb, sp); } else tip.style.display = 'none';
     renderer.domElement.style.cursor = p ? 'pointer' : '';
     if (p !== hovered) { hovered = p; highlight(hovered || selected); onHover && onHover(p); }
+  }
+  renderer.domElement.addEventListener('pointermove', (ev) => {
+    if (ev.buttons || dragging) { pendingMove = null; if (tip.style.display !== 'none') tip.style.display = 'none'; return; }
+    pendingMove = { clientX: ev.clientX, clientY: ev.clientY }; requestRender();
   });
-  renderer.domElement.addEventListener('pointerleave', () => { tip.style.display = 'none'; if (hovered) { hovered = null; highlight(selected); } });
+  renderer.domElement.addEventListener('pointerleave', () => { pendingMove = null; tip.style.display = 'none'; if (hovered) { hovered = null; highlight(selected); } });
   let down = null;
   renderer.domElement.addEventListener('pointerdown', (ev) => { down = [ev.clientX, ev.clientY]; });
   renderer.domElement.addEventListener('pointerup', (ev) => { if (!down || Math.hypot(ev.clientX - down[0], ev.clientY - down[1]) > 5) return; const p = pick(ev); if (p) onSelect && onSelect(p); });
   renderer.domElement.addEventListener('dblclick', (ev) => { const p = pick(ev); if (p) { ev.preventDefault(); onOpen && onOpen(p); } });
-  controls.addEventListener('change', () => requestRender());
+  renderer.domElement.addEventListener('contextmenu', (ev) => ev.preventDefault());   // right-drag pans
+  renderer.domElement.addEventListener('wheel', () => { motionUntil = performance.now() + 350; }, { passive: true });
+  controls.addEventListener('start', () => { dragging = true; motionUntil = performance.now() + 350; tip.style.display = 'none'; requestRender(); });
+  controls.addEventListener('end', () => { dragging = false; motionUntil = performance.now() + 250; requestRender(); });
+  // 'change' fires from user input AND from controls.update() inside tick (damping); inside tick
+  // it must not schedule another frame, or every damped frame would start one more loop.
+  controls.addEventListener('change', () => { labelsDirty = true; motionUntil = Math.max(motionUntil, performance.now() + 120); requestRender(); });
 
-  /* ---- loop: continuous while something moves, otherwise on demand */
+  /* ---- adaptive quality governor
+     While the camera moves, frame time is watched. If frames get slow the governor steps
+     down: 1 = traffic frozen + hidden, 2 = lower pixel ratio, 3 = low-detail buildings and no
+     small scenery. Big cities start moving at level 3. When the camera stops (idle 250 ms),
+     full quality comes back for the still image. Levels never change the idle look. */
+  let motionUntil = 0, inMotion = false, qLevel = 0, qFloor = 0, slow = 0, fast = 0, lastFrameT = 0, lastRenderT = 0;
+  const perfRing = { cpu: new Float32Array(240), dt: new Float32Array(240), moving: new Uint8Array(240), n: 0 };
+  function applyQuality(level) {
+    vGroup.visible = level < 1 && FEATURES.traffic; qVis = level < 1; if (artery?.userData.im) artery.userData.im.visible = qVis && night < 0.5;
+    const dpr = level >= 2 ? Math.min(DPR_FULL, 1) : DPR_FULL;
+    if (renderer.getPixelRatio() !== dpr) { renderer.setPixelRatio(dpr); resize(); }
+    detailG.visible = level < 3; bLo.visible = level >= 3 && bLo.children.length > 0; bGroup.visible = !bLo.visible;
+  }
+  function setMotion(on) {
+    if (on === inMotion) return;
+    inMotion = on;
+    if (on) { qLevel = Math.max(qFloor, bigCity ? 3 : 0); applyQuality(qLevel); }
+    else { applyQuality(0); labelsDirty = true; need = true; }
+  }
+
+  /* ---- loop: exactly one requestAnimationFrame chain; continuous only while something moves */
   const animated = movers.length > 0 || !!artery;
-  function requestRender() { need = true; if (running && !raf) raf = requestAnimationFrame(tick); }
+  function requestRender() { need = true; if (running && !raf && !inTick) raf = requestAnimationFrame(tick); }
   function tick(now) {
     raf = 0; if (!running) return;
     const dt = Math.min((now - last) / 1000, 0.05); last = now;
+    const t0 = performance.now();
+    inTick = true;
     const moving = controls.update();
-    if (animated || dots.length || need || moving) {
+    inTick = false;
+    const motion = dragging || moving || now < motionUntil;
+    setMotion(motion);
+    if (nightTo !== night) { const k = Math.min(1, (now - nightT0) / NIGHT_MS); applyNight(nightFrom + (nightTo - nightFrom) * (k * k * (3 - 2 * k))); need = true; }
+    if (pendingMove && !motion) { const ev = pendingMove; pendingMove = null; hoverAt(ev); }
+    const trafficOn = animated && vGroup.visible;
+    // idle traffic animates at ~30 fps (half the GPU work); camera motion renders every frame
+    const due = need || motion || dots.length || (trafficOn && now - lastRenderT > 31);
+    if (due) {
       simT += dt;
-      updateMovers(simT); pool.sync(); updateDots(simT); artery?.userData.setTime?.(simT); updateLabels();
-      renderer.render(scene, cam); frames++; need = false;
-    }
-    if (animated || dots.length || moving) raf = requestAnimationFrame(tick);
+      if (trafficOn) { updateMovers(simT); pool.sync(); artery?.userData.setTime?.(simT); }
+      updateDots(simT);
+      if (labelsDirty) updateLabels();
+      renderer.render(scene, cam); frames++; need = false; lastRenderT = now;
+      const cpu = performance.now() - t0, i = perfRing.n++ % 240;
+      perfRing.cpu[i] = cpu; perfRing.dt[i] = lastFrameT ? now - lastFrameT : 0; perfRing.moving[i] = motion ? 1 : 0; lastFrameT = now;
+      if (motion && !bigCity) {   // governor: step down after 8 slow frames, step back up after 90 fast ones
+        const fd = perfRing.dt[i];
+        if (fd > 22) { slow++; fast = 0; if (slow > 8 && qLevel < 3) { qLevel++; qFloor = Math.max(qFloor, qLevel - 1); slow = 0; applyQuality(qLevel); } }
+        else if (fd > 0 && fd < 15) { fast++; slow = 0; if (fast > 90 && qLevel > 0) { qLevel--; fast = 0; applyQuality(qLevel); } }
+      }
+      if (hud) drawHud(now);
+    } else lastFrameT = 0;
+    if (motion || need || dots.length || trafficOn || nightTo !== night || pendingMove) { if (!raf) raf = requestAnimationFrame(tick); }
   }
+  placeSky(); applyNight(night0 && FEATURES.dayNight ? 1 : 0); nightTo = night;
   requestRender();
   const onVis = () => { if (document.hidden) pause(true); else pause(false); };
   document.addEventListener('visibilitychange', onVis);
   function pause(p) { running = !p; if (running) { last = performance.now(); requestRender(); } else { cancelAnimationFrame(raf); raf = 0; } }
-
+  function perf() {
+    const n = Math.min(perfRing.n, 240), mv = { cpu: [], dt: [] }, all = { cpu: [], dt: [] };
+    for (let k = 0; k < n; k++) { const tgt = perfRing.moving[k] ? mv : null; all.cpu.push(perfRing.cpu[k]); if (perfRing.dt[k]) all.dt.push(perfRing.dt[k]); if (tgt) { tgt.cpu.push(perfRing.cpu[k]); if (perfRing.dt[k]) tgt.dt.push(perfRing.dt[k]); } }
+    const st = (a) => { if (!a.length) return null; const b = [...a].sort((x, y) => x - y); return { avg: +(a.reduce((x, y) => x + y, 0) / a.length).toFixed(2), p95: +b[Math.floor(b.length * 0.95)].toFixed(2), max: +b[b.length - 1].toFixed(2), n: a.length }; };
+    return { cpuMoving: st(mv.cpu), frameMsMoving: st(mv.dt), cpuAll: st(all.cpu), quality: qLevel, bigCity, dpr: renderer.getPixelRatio(), calls: renderer.info.render.calls, triangles: renderer.info.render.triangles };
+  }
+  // fps HUD: workspace.html?fps=1
+  let hud = null, hudT = 0, hudN = 0;
+  try { if (new URLSearchParams(location.search).get('fps') === '1') { hud = document.createElement('div'); hud.className = 'cc-hud'; host.appendChild(hud); } } catch { /* no location */ }
+  function drawHud(now) {
+    hudN++; if (now - hudT < 500) return;
+    const fps = hudN * 1000 / (now - hudT || 1); hudT = now; hudN = 0;
+    const i = (perfRing.n - 1 + 240) % 240, ri = renderer.info.render;
+    hud.textContent = `${fps.toFixed(0)} fps · frame ${perfRing.dt[i].toFixed(1)} ms · js ${perfRing.cpu[i].toFixed(2)} ms\n${ri.calls} draws · ${(ri.triangles / 1000).toFixed(0)}k tris · dpr ${renderer.getPixelRatio()} · q${inMotion ? qLevel : 0}${inMotion ? ' moving' : ''}`;
+  }
   return {
     select(id) { selected = id; highlight(id); },
     setColorBy(v) { if (!FEATURES.colorCoding) return; colorBy = v; buildBuildings(); },
     get colorBy() { return colorBy; },
     setLabels(v) { showLabels = !!v && FEATURES.folderLabels; updateLabels(); requestRender(); },
     get labels() { return showLabels; },
-    fitView: () => { fitView(); requestRender(); },
+    fitView: () => { fitView(); placeSky(); requestRender(); },
+    setNight, get night() { return nightTo === 1; },
+    perf,
     focusOn(id, dist = 70) { const i = byId.get(id); if (i === undefined) return; const c = info[i].box.getCenter(new THREE.Vector3()); const dir = cam.position.clone().sub(controls.target).normalize(); controls.target.copy(c); cam.position.copy(c).addScaledVector(dir, dist); controls.update(); requestRender(); },
     resize, pause,
+    camState: () => ({ pos: cam.position.toArray(), target: controls.target.toArray(), dist: +cam.position.distanceTo(controls.target).toFixed(2) }),
+    memInfo: () => ({ ...renderer.info.memory }),
     staticStats: () => staticStats,
     debug() { const by = {}; scene.traverse(o => { if (o.isMesh && o.visible) { const k = o.name || '?'; const t = (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3 * (o.isInstancedMesh ? o.count : 1); by[k] = by[k] || { meshes: 0, tris: 0 }; by[k].meshes++; by[k].tris += Math.round(t); } }); return by; },
     render: () => { updateMovers(simT); pool.sync(); artery?.userData.setTime?.(simT); updateLabels(); renderer.render(scene, cam); return true; },
@@ -699,7 +917,8 @@ export function createCity(host, plan, { onSelect, onOpen, onHover, colorBy: cb0
 }
 
 /* styles for the overlay (from the demo's index.html) */
-const css = `.cc-labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+const css = `.cc-hud{position:absolute;left:10px;top:10px;z-index:4;pointer-events:none;white-space:pre;font:600 11px/1.45 'Geist Mono',ui-monospace,Menlo,Consolas,monospace;color:#d8ffe0;background:rgba(10,14,20,.78);padding:6px 9px;border-radius:7px}
+.cc-labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
 .cc-labels .glabel{position:absolute;left:0;top:0;white-space:nowrap;font:600 11px/1 'Geist Mono',ui-monospace,Menlo,Consolas,monospace;color:#2b2f36;background:rgba(255,255,255,.82);padding:3px 6px;border-radius:5px;box-shadow:0 1px 3px rgba(0,0,0,.12)}
 .cc-labels .glabel.big{font-size:12px;padding:4px 8px;background:rgba(34,38,45,.86);color:#fff}
 .cc-labels .glabel.sub{font-size:10px;font-weight:500;background:rgba(255,255,255,.7)}

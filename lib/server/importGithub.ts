@@ -54,6 +54,7 @@ export async function importGithub(url: string, emit: (p: ImportProgress) => voi
     name: `${meta.owner}/${meta.repo}`,
     source: { kind: "github", owner: meta.owner, repo: meta.repo, branch: meta.branch, url: `https://github.com/${meta.owner}/${meta.repo}` },
     skipped: plan.skipped,
+    skippedExamples: plan.skippedExamples,
     warnings: [...plan.warnings, ...warnings],
     previewBudget: SERVER_PREVIEW_BUDGET,
   });

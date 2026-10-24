@@ -16,6 +16,7 @@ export interface AnalyzeOptions {
   name: string;
   source: ProjectSource;
   skipped?: Record<string, number>;
+  skippedExamples?: Record<string, string[]>;
   warnings?: string[];
   /** Total bytes of preview text to keep (most important files first). */
   previewBudget?: number;
@@ -151,7 +152,7 @@ export function analyzeEntries(entries: SourceEntry[], opts: AnalyzeOptions): Pr
     source: opts.source,
     files,
     previews,
-    stats: computeStats(files, opts.skipped ?? {}, edges),
+    stats: { ...computeStats(files, opts.skipped ?? {}, edges), skippedExamples: opts.skippedExamples ?? {} },
     warnings: opts.warnings ?? [],
     createdAt: Date.now(),
   };

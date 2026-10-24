@@ -186,7 +186,7 @@ async function showCode(p) {
 export function enterFocus(p, file) {
   current = p;
   const f = el(); f.hidden = false; document.body.classList.add('is-focus'); open = true;
-  if (!lev) lev = createLevitator($('[data-lev]'), { reduce });
+  if (!lev) { lev = createLevitator($('[data-lev]'), { reduce }); window.__codelensLev = lev; }
   lev.show(p, buildingOf(p)); lev.start();
   $('[data-ftitle]').textContent = p.split('/').pop();
   showCode(p);
@@ -201,4 +201,4 @@ export function exitFocus() {
 export function isFocus() { return open; }
 export const _review = { at: t => lev && lev.at(t), monaco: () => monacoP };
 
-addEventListener('keydown', e => { if (e.key === 'Escape' && open) exitFocus(); });
+addEventListener('keydown', e => { if (e.key === 'Escape' && open && !document.querySelector('dialog[open]') && !(e.target.closest && e.target.closest('.ws-talk, .ws-bar'))) exitFocus(); });

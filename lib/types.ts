@@ -189,6 +189,8 @@ export interface ProjectStats {
   filesCounted: number;
   filesSkipped: number;
   skipped: Partial<Record<string, number>>;
+  /** Up to 5 example paths per skip reason ("X files skipped: reasons" summary). */
+  skippedExamples?: Record<string, string[]>;
   secrets: number;
   binaries: number;
   languages: LanguageStat[];

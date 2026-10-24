@@ -7,14 +7,36 @@ import { enterFocus, exitFocus, isFocus, setSourceProvider, setBuildingProvider,
 import { createCity } from './city/engine.js';
 import { FEATURES } from './features.js';
 import * as Lib from './citylib/index.js';
+import { initChat } from './chat.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const q = new URLSearchParams(location.search);
 const CL = window.CodeLens;
 const base = p => p.split('/').pop();
+const SKIP_SHORT = { 'ignored-dir': 'in dependency/tool folders', 'build-output': 'generated build output', 'os-metadata': 'OS metadata', minified: 'minified / source maps', vendored: 'vendored', 'unsafe-path': 'unsafe paths', 'over-cap': 'over the file limit' };
+const SKIP_LONG = { 'ignored-dir': 'dependency / tool folders (node_modules, .git, caches, virtualenvs)', 'build-output': 'generated build output (dist / build / out with source maps, hashed or minified bundles)', 'os-metadata': 'OS metadata (__MACOSX, ._ files, .DS_Store, Thumbs.db)', minified: 'minified files and source maps', vendored: 'vendored third-party code (vendor/, third_party/)', 'unsafe-path': 'unsafe paths (absolute or ..), ignored for safety', 'over-cap': 'over the 5,000 file limit' };
 // Lookups keyed by repo-controlled paths: null-prototype objects, so a file called
 // `__proto__` / `constructor` (or ?file=__proto__) can never hit Object.prototype.
 const table = entries => Object.assign(Object.create(null), Object.fromEntries(entries));
+
+/* Day / night (feature flag dayNight): light mode = day with a sun, dark mode = night with a moon,
+   stars and lit windows. One toggle in the header, remembered in this browser. */
+const THEME_KEY = 'codelens.theme';
+const ls = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch { /* blocked */ } } };
+let night = FEATURES.dayNight && ls.get(THEME_KEY) === 'night';
+let onTheme = () => {};
+{
+  const btn = $('[data-theme]');
+  const paint = () => {
+    document.body.classList.toggle('is-night', night);
+    btn.setAttribute('aria-pressed', String(night));
+    btn.title = night ? 'Switch to day (sun)' : 'Switch to night (moon)';
+    $('[data-theme-label]').textContent = night ? 'Night' : 'Day';
+  };
+  btn.hidden = !FEATURES.dayNight;
+  btn.addEventListener('click', () => { night = !night; ls.set(THEME_KEY, night ? 'night' : 'day'); paint(); onTheme(night); });
+  paint();
+}
 
 let stored = null;
 try { stored = await CL.loadProject(); } catch (err) { console.warn('[codelens] no stored project', err); }
@@ -35,6 +57,7 @@ if (!started) {
   $('.ws').hidden = true;
   $('[data-empty]').hidden = false;
   document.title = 'Import a repo first · CodeLens';
+  $('[data-intro-open]').hidden = true;
   window.__workspaceReady = true;
 }
 
@@ -67,6 +90,37 @@ $('[data-filecount]').textContent = files.length.toLocaleString();
     for (const w of project.warnings || []) parts.push(w);
   }
   el.hidden = false; el.textContent = parts.join(' ');
+  // "X files skipped: reasons", with a few example paths per reason.
+  const sk = Object.entries(st.skipped || {}).filter(([, n]) => n > 0);
+  if (sk.length) {
+    const d = document.createElement('details'); d.className = 'ws-skipped'; d.dataset.skipped = '';
+    const sum = document.createElement('summary');
+    sum.textContent = st.filesSkipped.toLocaleString() + ' file' + (st.filesSkipped === 1 ? '' : 's') + ' skipped: ' + sk.map(([r, n]) => n.toLocaleString() + ' ' + (SKIP_SHORT[r] || r)).join(', ');
+    const ul = document.createElement('ul');
+    for (const [r, n] of sk) {
+      const li = document.createElement('li');
+      const b = document.createElement('b'); b.textContent = n.toLocaleString() + ' · ' + (SKIP_LONG[r] || r); li.append(b);
+      const ex = (st.skippedExamples || {})[r] || [];
+      if (ex.length) { const c = document.createElement('code'); c.textContent = ex.join(', ') + (n > ex.length ? ', …' : ''); li.append(' ', c); }
+      ul.append(li);
+    }
+    d.append(sum, ul); el.append(' ', d);
+  }
+}
+
+/* plain-words explanation of a building (shown in the Talk panel) */
+function plain(f) {
+  const n = base(f.path), b = buildingOf(f.path), dir = f.path.includes('/') ? f.path.slice(0, f.path.lastIndexOf('/')) : '';
+  const where = dir ? ` It stands in the ${dir}/ district (folder).` : ' It stands in the town centre (the project root).';
+  if (f.secret) return `This is ${n}, a secrets file. In the city it is the Vault: CodeLens shows only its name and never reads what is inside.${where}`;
+  if (f.binary) return `This is ${n}, a binary file (${(f.bytes / 1024).toFixed(1)} KB, no readable code). Its building is small and plain.${where}`;
+  const by = f.usedBy.length, uses = f.uses.length, lines = (f.lines || f.loc || 0);
+  const a = /^[aeiou]/i.test(f.language) ? 'an' : 'a';
+  let t = `This is ${n}, ${a} ${f.language} file with ${(f.estimated ? 'about ' : '') + lines.toLocaleString()} line${lines === 1 ? '' : 's'}` +
+    (by ? `, used by ${by} file${by === 1 ? '' : 's'}` : ', not imported by any other file') + (uses ? ` and imports ${uses} file${uses === 1 ? '' : 's'}` : '') + '.';
+  if (b && b.members) t += ` It is small, so it shares a small block with ${b.members.length - 1} other small file${b.members.length === 2 ? '' : 's'}.`;
+  else if (b) t += ` Its building is ${b.tier === 'tall' ? 'one of the tall towers' : b.tier === 'medium' ? 'a medium building' : 'a small shop'}: height comes from its lines of code` + (by ? ', and the plot grows with how many files import it.' : '.');
+  return t + where;
 }
 
 /* file tree: folders first, alphabetical, like an editor */
@@ -104,12 +158,14 @@ const list = $('[data-files]');
 const host = $('[data-city]');
 let colorBy = FEATURES.colorCoding && ['moduleType', 'language'].includes(q.get('colorBy')) ? q.get('colorBy') : 'none';
 const city = createCity(host, plan, {
-  colorBy, labels: FEATURES.folderLabels && q.get('labels') !== '0',
+  colorBy, night, labels: FEATURES.folderLabels && q.get('labels') !== '0',
   onSelect: id => { const b = bById[id]; select(b.members ? b.members[0] : id); },
   onOpen: id => { const b = bById[id]; const p = b.members ? b.members[0] : id; select(p); enterFocus(p, byPath[p]); },
 });
 window.__codelensCity = city;
+onTheme = on => city.setNight && city.setNight(on, true);
 
+let chat = null;
 /* Talk to the file */
 function say(f) {
   if (f.description) return f.description;
@@ -139,9 +195,10 @@ function select(p, push) {
   $('[data-tier]').textContent = tierOf(f); $('[data-type]').textContent = f.secret ? 'secrets' : modOf(f);
   $('[data-lines]').textContent = f.secret ? 'not read' : f.binary ? (f.bytes / 1024).toFixed(1) + ' KB' : (f.estimated ? '~' : '') + (f.lines || f.loc).toLocaleString() + ' lines';
   $('[data-langname]').textContent = f.secret || f.binary ? '' : f.language;
+  $('[data-plain]').textContent = plain(f);
   $('[data-say]').textContent = say(f);
-  $('[data-saycap]').textContent = f.description ? 'Summary from the import.' : 'Placeholder from the file\'s real stats until the Gemini phase. Real answers come from the AI key you paste, and AI can be wrong.';
-  $('[data-follow]').placeholder = 'Ask ' + base(p) + ' a follow-up (Gemini phase)';
+  $('[data-saycap]').textContent = f.description ? 'Summary from the import.' : 'From the file\'s real stats (no AI). Ask a question below for a Gemini answer; AI can be wrong.';
+  chat && chat.renderKey();
   const uses = $('[data-uses]'), by = $('[data-by]'); uses.replaceChildren(); by.replaceChildren();
   f.uses.slice(0, 200).forEach(t => uses.append(li(t)));
   f.usedBy.slice(0, 200).forEach(t => by.append(li(t)));
@@ -165,6 +222,38 @@ async function showCode(p) {
   $('[data-code-lines]').innerHTML = lines.map((l, i) => '<span class="ln">' + (i + 1) + '</span>' + esc(l)).join('\n');
   real.hidden = false; none.hidden = true; real.scrollTop = 0;
   $('[data-codenote]').textContent = (s.note ? s.note + ' · ' : '') + 'Read only' + (s.truncated ? ' · first ' + lines.length + ' lines' : '');
+}
+
+/* Gemini chat (Talk panel + Ask anything), also usable beside Monaco in focus mode */
+chat = initChat({
+  project, current: () => current, source,
+  fileContext: p => {
+    const f = byPath[p]; if (!f) return '';
+    return [plain(f), 'Language: ' + f.language + '. Kind: ' + modOf(f) + '.',
+      'Uses: ' + (f.uses.slice(0, 30).join(', ') || 'nothing'), 'Used by: ' + (f.usedBy.slice(0, 30).join(', ') || 'nobody')].join('\n');
+  },
+  projectContext: () => {
+    const st = project.stats;
+    const dirs = {}; for (const f of files) { const d = f.path.includes('/') ? f.path.split('/')[0] + '/' : '(root)'; dirs[d] = (dirs[d] || 0) + 1; }
+    return [`${files.length} files, ${st.totalLoc.toLocaleString()} lines of code, ${st.imports} imports.`,
+      'Languages: ' + st.languages.slice(0, 8).map(l => l.language + ' ' + l.loc).join(', '),
+      'Top folders: ' + Object.entries(dirs).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([d, n]) => d + ' (' + n + ')').join(', '),
+      'Largest files: ' + st.largest.slice(0, 10).map(l => l.path + ' (' + l.loc + ' loc)').join(', '),
+      'Most imported: ' + [...files].sort((a, b) => b.usedBy.length - a.usedBy.length).slice(0, 10).map(f => f.path + ' (' + f.usedBy.length + ')').join(', ')].join('\n');
+  },
+});
+
+/* intro: what the buildings mean (first visit; reopen with ?) */
+{
+  const dlg = $('[data-intro]'), never = $('[data-intro-never]');
+  const open = () => { never.checked = ls.get('codelens.introSeen') === '1'; if (!dlg.open) { if (dlg.showModal) dlg.showModal(); else dlg.setAttribute('open', ''); } };
+  const close = () => { if (never.checked) ls.set('codelens.introSeen', '1'); else if (ls.get('codelens.introSeen') === '1') ls.set('codelens.introSeen', '0'); dlg.close(); };
+  dlg.querySelectorAll('[data-intro-close]').forEach(b => b.addEventListener('click', close));
+  dlg.addEventListener('cancel', () => { if (never.checked) ls.set('codelens.introSeen', '1'); });
+  dlg.addEventListener('click', e => { if (e.target === dlg) close(); });
+  $('[data-intro-open]').addEventListener('click', open);
+  window.CodeLensIntro = { open, close };
+  if (ls.get('codelens.introSeen') !== '1' && q.get('intro') !== '0') open();
 }
 
 /* focus mode gets the same data */

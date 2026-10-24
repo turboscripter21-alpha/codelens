@@ -17,6 +17,7 @@ export const FEATURES = {
   footpaths: true,       // footpaths between back-to-back rows of lots
   tooltip: true,         // hover tooltip with the file name
   shadows: true,         // sun shadows
+  dayNight: true,        // day / night toggle: sun + warm sky by day; moon, stars, lit windows and lamp glow at night
 };
 /* Caps that keep big repos smooth. */
 export const LIMITS = { bikes: 36, cars: 8, trucks: 6, buses: 4, arcs: 30, labels: 80 };

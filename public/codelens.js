@@ -172,6 +172,8 @@
     $('.cl-drop__empty', drop).hidden = true; $('.cl-drop__picked', drop).hidden = false;
     drop.classList.add('is-picked');
   }
+  function isZip(f) { return /\.zip$/i.test(f.name) || /^application\/(x-)?zip(-compressed)?$/.test(f.type); }
+  function pickZip(f) { setPicked({ src: 'zip', name: /\.zip$/i.test(f.name) ? f.name : f.name + '.zip', file: f }, f.size); }
   function clearPicked() {
     picked = null;
     drop.classList.remove('is-picked'); $('.cl-drop__empty', drop).hidden = false; $('.cl-drop__picked', drop).hidden = true;
@@ -184,7 +186,7 @@
         if (inp.dataset.pick === 'dir') {
           var list = [].slice.call(f).map(function (x) { return { file: x, path: x.webkitRelativePath || x.name }; });
           setPicked({ src: 'folder', name: (f[0].webkitRelativePath || f[0].name).split('/')[0], files: list });
-        } else setPicked({ src: 'zip', name: f[0].name, file: f[0] }, f[0].size);
+        } else pickZip(f[0]);
       });
     });
     var depth = 0;
@@ -194,10 +196,26 @@
     drop.addEventListener('drop', function (e) {
       e.preventDefault(); depth = 0; drop.classList.remove('is-over');
       var dt = e.dataTransfer; if (!dt) return;
-      var it = dt.items && dt.items[0], entry = it && it.webkitGetAsEntry && it.webkitGetAsEntry();
-      if (entry && entry.isDirectory) CL.filesFromEntry(entry).then(function (list) { setPicked({ src: 'folder', name: entry.name, files: list }); });
-      else if (dt.files.length && /\.zip$/i.test(dt.files[0].name)) setPicked({ src: 'zip', name: dt.files[0].name, file: dt.files[0] }, dt.files[0].size);
+      // Every dropped item counts (several folders / loose files become one project), not just the first.
+      var entries = [].slice.call(dt.items || []).map(function (it) { return it.webkitGetAsEntry && it.webkitGetAsEntry(); }).filter(Boolean);
+      var zip = [].slice.call(dt.files || []).filter(function (f) { return isZip(f); })[0];
+      if (entries.length === 1 && entries[0].isDirectory) CL.filesFromEntry(entries[0]).then(function (list) { setPicked({ src: 'folder', name: entries[0].name, files: list }); }, function () { fail('That folder could not be read. Try Choose folder.'); });
+      else if (zip && dt.files.length === 1) pickZip(zip);
+      else if (entries.length) Promise.all(entries.map(function (en) { return CL.filesFromEntry(en); })).then(function (lists) {
+        var list = [].concat.apply([], lists);
+        if (list.length) setPicked({ src: 'folder', name: 'dropped files', files: list }); else fail('Nothing to import in what you dropped.');
+      }, function () { fail('Those files could not be read. Try Choose folder.'); });
+      else if (zip) pickZip(zip);
       else if (dt.files.length) fail('Drop a .zip file or a project folder.');
+    });
+    // Ctrl+V / Cmd+V: a .zip copied in the file manager can be pasted anywhere on the page.
+    // (Browsers only expose pasted files, not folders: drop a folder or use Choose folder.)
+    document.addEventListener('paste', function (e) {
+      var cd = e.clipboardData; if (!cd || !cd.files || !cd.files.length) return;
+      var zf = [].slice.call(cd.files).filter(function (f) { return isZip(f); })[0];
+      e.preventDefault();
+      if (zf) { pickZip(zf); drop.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+      else fail('Paste a .zip file. To import a folder, drop it here or use Choose folder.');
     });
     $('.cl-drop__clear', drop).addEventListener('click', clearPicked);
     $('.cl-drop__picked a', drop).addEventListener('click', function (e) {

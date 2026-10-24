@@ -4,7 +4,7 @@
  * folder) list entries first, ask `planEntries` what to read, then read only
  * those bytes and hand them to `entryFromBytes`.
  */
-import { CAPS, isBinaryExt, isLockfile, isSecretPath, looksBinary, normalizePath, skipReason, stripCommonRoot } from "./rules";
+import { CAPS, generatedDirs, isBinaryExt, isLockfile, isSecretPath, looksBinary, normalizePath, skipReason, stripCommonRoot } from "./rules";
 import { detectLanguage } from "./language";
 
 export interface SourceEntry {
@@ -34,6 +34,8 @@ export interface PlannedEntry {
 export interface Plan {
   keep: PlannedEntry[];
   skipped: Record<string, number>;
+  /** Up to 5 example paths per skip reason, for the "X files skipped" summary. */
+  skippedExamples: Record<string, string[]>;
   warnings: string[];
   root: string | null;
 }
@@ -43,13 +45,19 @@ const bump = (o: Record<string, number>, k: string) => (o[k] = (o[k] ?? 0) + 1);
 /** Apply path safety, ignore rules, secrets, binaries, file cap and total-read cap. */
 export function planEntries(listing: RawListing[], opts: { stripRoot?: boolean } = {}): Plan {
   const skipped: Record<string, number> = {};
+  const skippedExamples: Record<string, string[]> = {};
+  const note = (reason: string, path: string) => {
+    bump(skipped, reason);
+    const ex = (skippedExamples[reason] ??= []);
+    if (ex.length < 5) ex.push(path);
+  };
   const warnings: string[] = [];
   const safe: { raw: string; path: string; size: number }[] = [];
   for (const l of listing) {
     if (l.raw.endsWith("/")) continue; // directory entry
     const p = normalizePath(l.raw);
     if (!p) {
-      bump(skipped, "unsafe-path");
+      note("unsafe-path", l.raw.slice(0, 120));
       continue;
     }
     safe.push({ raw: l.raw, path: p, size: l.size });
@@ -59,13 +67,14 @@ export function planEntries(listing: RawListing[], opts: { stripRoot?: boolean }
   const { root, strip } = opts.stripRoot === false ? { root: null, strip: (p: string) => p } : stripCommonRoot(safe.map((s) => s.path));
   let kept: PlannedEntry[] = [];
   const seen = new Set<string>();
+  const generated = generatedDirs(safe.map((s) => strip(s.path)));
   for (const s of safe) {
     const path = strip(s.path);
     if (!path || seen.has(path)) continue;
     seen.add(path);
-    const reason = skipReason(path);
+    const reason = skipReason(path, generated);
     if (reason) {
-      bump(skipped, reason);
+      note(reason, path);
       continue;
     }
     const action: PlannedEntry["action"] = isSecretPath(path)
@@ -84,6 +93,7 @@ export function planEntries(listing: RawListing[], opts: { stripRoot?: boolean }
     kept.sort((a, b) => rank(a) - rank(b) || a.path.split("/").length - b.path.split("/").length || a.path.localeCompare(b.path));
     const over = kept.length - CAPS.maxFiles;
     skipped["over-cap"] = over;
+    skippedExamples["over-cap"] = kept.slice(CAPS.maxFiles, CAPS.maxFiles + 5).map((e) => e.path);
     warnings.push(`Large project: analyzed the first ${CAPS.maxFiles.toLocaleString()} files, skipped ${over.toLocaleString()}.`);
     kept = kept.slice(0, CAPS.maxFiles);
   }
@@ -101,7 +111,7 @@ export function planEntries(listing: RawListing[], opts: { stripRoot?: boolean }
   if (downgraded) warnings.push(`${downgraded} files were not read (size budget); their line counts are estimated.`);
 
   kept.sort((a, b) => a.path.localeCompare(b.path));
-  return { keep: kept, skipped, warnings, root };
+  return { keep: kept, skipped, skippedExamples, warnings, root };
 }
 
 const decoder = typeof TextDecoder !== "undefined" ? new TextDecoder("utf-8", { fatal: false }) : null;

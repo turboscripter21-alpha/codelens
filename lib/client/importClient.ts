@@ -82,7 +82,7 @@ export async function importZipFile(file: File, emit: Emit): Promise<Project> {
   }
   emit({ stage: "read", detail: `${read.entries.length.toLocaleString()} files`, ratio: 1 });
   await tick();
-  return finish(read.entries, read.plan.skipped, read.plan.warnings, file.name.replace(/\.zip$/i, ""), { kind: "zip", name: file.name }, emit);
+  return finish(read.entries, read.plan.skipped, read.plan.warnings, read.plan.skippedExamples, file.name.replace(/\.zip$/i, ""), { kind: "zip", name: file.name }, emit);
 }
 
 export async function importFolder(name: string, files: { file: File; path: string }[], emit: Emit): Promise<Project> {
@@ -98,14 +98,14 @@ export async function importFolder(name: string, files: { file: File; path: stri
     entries.push(...read);
     emit({ stage: "read", detail: `${Math.min(i + BATCH, plan.keep.length).toLocaleString()} / ${plan.keep.length.toLocaleString()} files`, ratio: (i + BATCH) / plan.keep.length });
   }
-  return finish(entries, plan.skipped, plan.warnings, plan.root ?? name, { kind: "folder", name }, emit);
+  return finish(entries, plan.skipped, plan.warnings, plan.skippedExamples, plan.root ?? name, { kind: "folder", name }, emit);
 }
 
-async function finish(entries: SourceEntry[], skipped: Record<string, number>, warnings: string[], name: string, source: Project["source"], emit: Emit): Promise<Project> {
+async function finish(entries: SourceEntry[], skipped: Record<string, number>, warnings: string[], skippedExamples: Record<string, string[]>, name: string, source: Project["source"], emit: Emit): Promise<Project> {
   if (!entries.length) throw new ClientImportError("empty", "No source files found after ignore rules (node_modules, build output, binaries...).");
   emit({ stage: "analyze", detail: `${entries.length.toLocaleString()} files`, ratio: 0.2 });
   await tick();
-  const project = analyzeEntries(entries, { name, source, skipped, warnings });
+  const project = analyzeEntries(entries, { name, source, skipped, skippedExamples, warnings });
   emit({ stage: "analyze", detail: `${project.stats.totalLoc.toLocaleString()} lines of code`, ratio: 1 });
   return project;
 }
@@ -123,7 +123,7 @@ export async function filesFromEntry(root: FileSystemEntry): Promise<{ file: Fil
       return;
     }
     // Do not descend into folders we would ignore anyway.
-    if (["node_modules", ".git", ".next", "dist", "build", "__pycache__", ".venv", "venv"].includes(entry.name) && prefix) return;
+    if (["node_modules", ".git", ".next", "__pycache__", ".venv", "venv"].includes(entry.name) && prefix) return;
     const reader = (entry as FileSystemDirectoryEntry).createReader();
     for (;;) {
       const batch = await new Promise<FileSystemEntry[]>((res, rej) => reader.readEntries(res, rej));

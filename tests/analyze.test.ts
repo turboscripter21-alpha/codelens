@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { zipSync, strToU8 } from "fflate";
 import { analyzeEntries, countLines, previewOf } from "../lib/analyze/analyze";
 import { planEntries } from "../lib/analyze/collect";
-import { isSecretPath, normalizePath, skipReason, stripCommonRoot, CAPS } from "../lib/analyze/rules";
+import { isSecretPath, normalizePath, skipReason, stripCommonRoot, generatedDirs, CAPS } from "../lib/analyze/rules";
 import { extractImports, resolveImport } from "../lib/analyze/imports";
 import { readZip } from "../lib/analyze/zip";
 import { detectLanguage } from "../lib/analyze/language";
@@ -34,7 +34,8 @@ test("ignore rules: node_modules, build output, minified, vendored", () => {
   assert.equal(skipReason("node_modules/react/index.js"), "ignored-dir");
   assert.equal(skipReason("packages/a/node_modules/x.js"), "ignored-dir");
   assert.equal(skipReason(".git/config"), "ignored-dir");
-  assert.equal(skipReason("dist/app.js"), "ignored-dir");
+  assert.equal(skipReason("dist/app.js"), null); // output-named folders need evidence (see below)
+  assert.equal(skipReason("dist/app.js", new Set(["dist"])), "build-output");
   assert.equal(skipReason(".next/server/x.js"), "ignored-dir");
   assert.equal(skipReason("public/jquery.min.js"), "minified");
   assert.equal(skipReason("app.js.map"), "minified");
@@ -133,4 +134,50 @@ test("stripCommonRoot only strips a shared top folder", () => {
   assert.equal(stripCommonRoot(["a/x", "a/y/z"]).root, "a");
   assert.equal(stripCommonRoot(["a/x", "b/y"]).root, null);
   assert.equal(stripCommonRoot(["x"]).root, null);
+});
+
+// Issue: "if i paste a zip folder its skipping the files". Real source in build/, out/, env/,
+// Windows backslash zips, nested roots and macOS metadata must all import correctly.
+const SRC: Record<string, string> = {
+  "src/index.js": "import a from './a.js'\n", "src/a.js": "export default 1\n", "package.json": "{}\n",
+  "build/build.js": "module.exports = 1\n", "out/report.py": "print(1)\n", "lib/util.js": "x\n", "public/app.js": "x\n",
+  "src/env/config.ts": "export const a = 1\n", "scripts/build/run.sh": "echo\n", "data/weird.xyz": "hello\n", "vendor/v.js": "v\n",
+};
+const zipOf = (prefix: string, extra: Record<string, Uint8Array> = {}, sep = "/") =>
+  zipSync({ ...Object.fromEntries(Object.entries(SRC).map(([k, v]) => [(prefix + k).replace(/\//g, sep), strToU8(v)])), ...extra });
+const keptOf = (z: Uint8Array) => readZip(z).entries.map((e) => e.path).sort();
+const EXPECTED = Object.keys(SRC).filter((k) => !k.startsWith("vendor/")).sort();
+
+test("zip import keeps real source in build/, out/, lib/, public/, env/ (GitHub Download ZIP)", () => {
+  const r = readZip(zipOf("proj-main/"));
+  assert.deepEqual(r.entries.map((e) => e.path).sort(), EXPECTED);
+  assert.equal(r.plan.skipped["vendored"], 1);
+  assert.deepEqual(r.plan.skippedExamples["vendored"], ["vendor/v.js"]);
+});
+
+test("zip import: Windows backslash paths without directory entries", () => {
+  assert.deepEqual(keptOf(zipOf("proj\\", {}, "\\")), EXPECTED);
+});
+
+test("zip import: nested root folder and macOS __MACOSX metadata", () => {
+  assert.deepEqual(keptOf(zipOf("proj/proj/")), EXPECTED);
+  const mac = readZip(zipOf("proj/", { "__MACOSX/proj/._a.js": new Uint8Array([0, 5]), "proj/.DS_Store": new Uint8Array([0]) }));
+  assert.deepEqual(mac.entries.map((e) => e.path).sort(), EXPECTED);
+  assert.equal(mac.plan.skipped["os-metadata"], 2);
+});
+
+test("zip import: shared src/ folder is not mistaken for a root; >700 files all kept", () => {
+  const files: Record<string, Uint8Array> = {};
+  for (let i = 0; i < 900; i++) files[`proj/src/m${i}/f${i}.js`] = strToU8(`export const v${i} = ${i}\n`);
+  const r = readZip(zipSync(files));
+  assert.equal(r.entries.length, 900);
+  assert.equal(r.plan.root, "proj");
+  assert.ok(r.entries[0].path.startsWith("src/"));
+});
+
+test("generated build output (source maps, hashed bundles, .d.ts) is skipped with a reason", () => {
+  assert.deepEqual([...generatedDirs(["dist/a.js", "dist/a.js.map", "build/run.js", "packages/ui/out/main.3f9a1c2b.js"])].sort(), ["dist", "packages/ui/out"]);
+  const plan = planEntries(["p/src/a.ts", "p/dist/a.js", "p/dist/a.js.map", "p/dist/a.d.ts", "p/build/script.js"].map((raw) => ({ raw, size: 10 })));
+  assert.deepEqual(plan.keep.map((e) => e.path), ["build/script.js", "src/a.ts"]);
+  assert.equal(plan.skipped["build-output"], 3);
 });
