@@ -9,8 +9,8 @@
  */
 import { analyzeEntries } from "@/lib/analyze/analyze";
 import { entryFromBytes, planEntries, type SourceEntry } from "@/lib/analyze/collect";
-import { CAPS, mediaMime, MEDIA_MAX_BYTES } from "@/lib/analyze/rules";
-import { MEDIA_BUDGET, readZip } from "@/lib/analyze/zip";
+import { CAPS, imageMime, IMAGE_MAX_BYTES, mediaMime, MEDIA_MAX_BYTES } from "@/lib/analyze/rules";
+import { IMAGE_BUDGET, MEDIA_BUDGET, readZip } from "@/lib/analyze/zip";
 import type { ImportProgress, Project } from "@/lib/types";
 
 export class ClientImportError extends Error {
@@ -111,6 +111,15 @@ export async function importFolder(name: string, files: { file: File; path: stri
     const f = byRaw.get(e.raw);
     if (!mime || !f || f.size > MEDIA_MAX_BYTES || f.size > budget || n >= MEDIA_BUDGET.files) continue;
     budget -= f.size; n++;
+    media[e.path] = new Blob([f], { type: mime });
+  }
+  // Images for the image viewer (each <= 5 MB, capped in total). The bytes stay in this browser.
+  let imgBudget = IMAGE_BUDGET.bytes, imgs = 0;
+  for (const e of plan.keep) {
+    const mime = e.action !== "secret" ? imageMime(e.path) : null;
+    const f = byRaw.get(e.raw);
+    if (!mime || !f || f.size > IMAGE_MAX_BYTES || f.size > imgBudget || imgs >= IMAGE_BUDGET.files) continue;
+    imgBudget -= f.size; imgs++; n++;
     media[e.path] = new Blob([f], { type: mime });
   }
   if (n) project.media = media;

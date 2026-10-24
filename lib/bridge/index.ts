@@ -11,7 +11,7 @@
  */
 import { ClientImportError, filesFromEntry, importFolder, importGithub, importZipFile } from "@/lib/client/importClient";
 import { planCity, type PlanOptions } from "@/lib/city/blockLayout";
-import { isSecretPath, isBinaryExt, mediaMime, MEDIA_MAX_BYTES } from "@/lib/analyze/rules";
+import { binaryTypeOf, imageMime, IMAGE_MAX_BYTES, isSecretPath, isBinaryExt, mediaMime, MEDIA_MAX_BYTES } from "@/lib/analyze/rules";
 import { parseGitHubUrl } from "@/lib/github";
 import type { ImportProgress, Project } from "@/lib/types";
 import { own } from "@/lib/safeDict";
@@ -85,13 +85,51 @@ export function checkGithubUrl(url: string): { ok: true; owner: string; repo: st
 export type Source =
   | { kind: "text"; text: string; truncated: boolean; note?: string }
   | { kind: "media"; mime: string; media: "audio" | "video"; url: string; revoke: boolean }
-  | { kind: "secret" | "binary" | "missing" | "error"; message: string };
+  | { kind: "image"; mime: string; url: string; revoke: boolean; bytes: number; svgText?: string }
+  | { kind: "secret" | "binary" | "missing" | "error"; message: string; type?: string; bytes?: number; tooLarge?: boolean };
+
+const mb = (n: number) => (n / 1024 / 1024).toFixed(1) + " MB";
+
+/** An image for the viewer: a blob: URL (CSP img-src blob:) with the allowlisted type; SVG source kept for "view source". */
+async function imageSource(blob: Blob, mime: string): Promise<Source> {
+  const typed = blob.type === mime ? blob : new Blob([blob], { type: mime });
+  const svgText = mime === "image/svg+xml" && blob.size <= 1024 * 1024 ? await blob.text() : undefined;
+  return { kind: "image", mime, url: URL.createObjectURL(typed), revoke: true, bytes: blob.size, svgText };
+}
+
+async function getImage(project: Project, f: Project["files"][number], path: string, mime: string): Promise<Source> {
+  const type = binaryTypeOf(path);
+  const tooBig = (n: number): Source => ({ kind: "binary", type, bytes: n, tooLarge: true, message: `This image is ${mb(n)}, over the ${mb(IMAGE_MAX_BYTES)} viewer limit, so it is not shown here. It still gets a building.` });
+  const blob = project.media && own(project.media, path);
+  if (blob instanceof Blob) return blob.size > IMAGE_MAX_BYTES ? tooBig(blob.size) : imageSource(blob, mime);
+  if (f.bytes > IMAGE_MAX_BYTES) return tooBig(f.bytes);
+  if (project.source.kind === "github") {
+    const s = project.source;
+    const q = new URLSearchParams({ owner: s.owner, repo: s.repo, ref: s.branch, path, as: "image" });
+    try {
+      const r = await fetch("/api/github/file?" + q.toString());
+      if (r.status === 413) return tooBig(f.bytes);
+      if (r.status === 403) return { kind: "secret", message: await r.text() };
+      if (!r.ok) return { kind: "error", message: (await r.text()) || `GitHub said ${r.status}.` };
+      const b = await r.blob();
+      return b.size > IMAGE_MAX_BYTES ? tooBig(b.size) : imageSource(b, mime);
+    } catch {
+      return { kind: "error", message: "Could not reach the CodeLens server." };
+    }
+  }
+  // A text SVG whose full source was kept as a preview can still be drawn.
+  const pre = own(project.previews, path);
+  if (mime === "image/svg+xml" && pre !== undefined && f.lines <= pre.split("\n").length) return imageSource(new Blob([pre], { type: mime }), mime);
+  return { kind: "binary", type, bytes: f.bytes, message: "This image was not kept in this browser (over the size budget for one import), so it cannot be shown. It still gets a building." };
+}
 
 /** The file's source for the Code tab / focus mode. Secrets are never read. */
 export async function getSource(project: Project, path: string): Promise<Source> {
   const f = project.files.find((x) => x.path === path);
   if (!f) return { kind: "missing", message: "Not in this project." };
   if (f.secret || isSecretPath(path)) return { kind: "secret", message: "This is a secrets file. CodeLens lists it by name only; its contents are never read." };
+  const img = imageMime(path);
+  if (img) return getImage(project, f, path, img);
   const mime = mediaMime(path);
   if (mime) {
     const media = mime.startsWith("video/") ? "video" : "audio";
@@ -119,7 +157,7 @@ export async function getSource(project: Project, path: string): Promise<Source>
     }
     return { kind: "binary", message: "This audio / video file was not kept in this browser (over the size budget), so it cannot be played. It still gets a building." };
   }
-  if (f.binary || isBinaryExt(path)) return { kind: "binary", message: "This file is binary, so there is no text to show. It still gets a building." };
+  if (f.binary || isBinaryExt(path)) return { kind: "binary", type: binaryTypeOf(path), bytes: f.bytes, message: "This file is binary, so there is no text to show. It still gets a building." };
   const pre = own(project.previews, path);
   const truncated = (t: string) => f.lines > t.split("\n").length;
   if (pre !== undefined) return { kind: "text", text: pre, truncated: truncated(pre) };

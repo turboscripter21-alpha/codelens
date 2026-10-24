@@ -2,7 +2,7 @@
    on the left in a read-only Monaco editor themed like VS Code Light Modern;
    the building floats alone on the right. The source is the imported project's real file. */
 import { createLevitator } from './levitate.js';
-import { showMedia, clearMedia } from './media.js';
+import { showMedia, clearMedia, showImage, showCard, sourceToggle, removeToggle } from './media.js';
 
 /* Wiring: the workspace hands us the real source, the building and the project name. */
 let sourceOf = async () => ({ kind: 'missing', message: 'No source.' });
@@ -220,10 +220,21 @@ async function showCode(p) {
   crumbs(p);
   const host = $('[data-editor]'), none = $('[data-binary]');
   const src = await sourceOf(p);
-  if (current !== p) { if (src.kind === 'media' && src.revoke) URL.revokeObjectURL(src.url); return; }
+  if (current !== p) { if ((src.kind === 'media' || src.kind === 'image') && src.revoke) URL.revokeObjectURL(src.url); return; }
   clearMedia(none);
+  const rest = $('.vsc-tabs__rest');
+  removeToggle(rest);
   const msgEl = $('[data-binary-msg]');
   msgEl.hidden = false;
+  if (src.kind === 'image') {
+    host.hidden = true; none.hidden = false; msgEl.hidden = true; status(1, 1, 'Image');
+    showImage(none, src, p.split('/').pop());
+    $('[data-vscnote]').textContent = 'Read only · image viewer';
+    if (src.svgText != null) sourceToggle(rest,
+      () => { if (current !== p) return; host.hidden = true; none.hidden = false; status(1, 1, 'Image'); $('[data-vscnote]').textContent = 'Read only · image viewer'; },
+      () => { if (current !== p) return; none.hidden = true; host.hidden = false; $('[data-vscnote]').textContent = 'Read only · SVG source'; renderText(p, src.svgText, 'xml', 'SVG'); });
+    return;
+  }
   if (src.kind === 'media') {
     host.hidden = true; none.hidden = false; msgEl.hidden = true; status(1, 1, src.media === 'video' ? 'Video' : 'Audio');
     showMedia(none, src, p.split('/').pop());
@@ -232,13 +243,19 @@ async function showCode(p) {
   }
   if (src.kind !== 'text') {
     host.hidden = true; none.hidden = false; status(1, 1, src.kind === 'secret' ? 'Secret' : src.kind === 'binary' ? 'Binary' : 'Not available');
-    $('[data-binary-msg]').textContent = src.kind === 'secret' ? 'Vault: contents never read. ' + src.message : src.message;
+    if (src.kind === 'binary') { msgEl.hidden = true; showCard(none, src, p.split('/').pop()); }
+    else $('[data-binary-msg]').textContent = src.kind === 'secret' ? 'Vault: contents never read. ' + src.message : src.message;
     $('[data-vscnote]').textContent = 'Read only';
     return;
   }
   const code = src.text;
   $('[data-vscnote]').textContent = 'Read only' + (src.note ? ' · ' + src.note.toLowerCase() : '') + (src.truncated ? ' · first ' + code.split('\n').length + ' lines' : '');
   host.hidden = false; none.hidden = true;
+  return renderText(p, code, lang, langName);
+}
+
+async function renderText(p, code, lang, langName) {
+  const host = $('[data-editor]');
   status(1, 1, langName);
   let monaco;
   try { monaco = await loadMonaco(); } catch (err) { console.warn('[codelens] Monaco did not load', err); return; }
@@ -294,7 +311,7 @@ export function goToLine(n) {
   status(l, 1, LANG(current)[1]);
 }
 export function exitFocus() {
-  clearMedia($('[data-binary]'));
+  clearMedia($('[data-binary]')); removeToggle($('.vsc-tabs__rest'));
   if (!open) return;
   open = false; el().hidden = true; document.body.classList.remove('is-focus');
   lev && lev.stop();

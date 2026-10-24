@@ -176,7 +176,7 @@ export async function getRawBytes(owner: string, repo: string, ref: string, path
   if (res.status === 404) throw new ImportError("not-found", "File not found.");
   if (!res.ok || !res.body) throw new ImportError("upstream", `GitHub returned ${res.status}.`);
   const len = Number(res.headers.get("content-length") || 0);
-  if (len > max) { await res.body.cancel(); throw new ImportError("too-large", "This file is over the 10 MB player limit."); }
+  if (len > max) { await res.body.cancel(); throw new ImportError("too-large", `This file is over the ${Math.round(max / 1024 / 1024)} MB limit.`); }
   const reader = res.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
@@ -184,7 +184,7 @@ export async function getRawBytes(owner: string, repo: string, ref: string, path
     const { done, value } = await reader.read();
     if (done) break;
     total += value.length;
-    if (total > max) { await reader.cancel(); throw new ImportError("too-large", "This file is over the 10 MB player limit."); }
+    if (total > max) { await reader.cancel(); throw new ImportError("too-large", `This file is over the ${Math.round(max / 1024 / 1024)} MB limit.`); }
     chunks.push(value);
   }
   const buf = new Uint8Array(total);

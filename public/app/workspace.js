@@ -14,8 +14,9 @@ import { createCity } from './city/engine.js';
 import { FEATURES } from './features.js';
 import * as Lib from './citylib/index.js';
 import { initChat } from './chat.js';
-import { showMedia, clearMedia } from './media.js';
+import { showMedia, clearMedia, showImage, showCard, sourceToggle, removeToggle } from './media.js';
 const MEDIA_RE = /\.(mp3|wav|ogg|m4a|flac|mp4|webm)$/i;
+const IMG_RE = /\.(png|jpe?g|gif|webp|bmp|ico|avif|svg)$/i;
 
 const $ = (s, r = document) => r.querySelector(s);
 const q = new URLSearchParams(location.search);
@@ -125,6 +126,7 @@ function plain(f) {
   const n = base(f.path), b = buildingOf(f.path), dir = f.path.includes('/') ? f.path.slice(0, f.path.lastIndexOf('/')) : '';
   const where = dir ? ` It stands in the ${dir}/ district (folder).` : ' It stands in the town centre (the project root).';
   if (f.secret) return `This is ${n}, a secrets file. In the city it is the Vault: CodeLens shows only its name and never reads what is inside.${where}`;
+  if (IMG_RE.test(f.path)) return `This is ${n}, an image file (${(f.bytes / 1024).toFixed(1)} KB). Open the Code tab or double-click the building to see it.${where}`;
   if (f.binary && MEDIA_RE.test(f.path)) return `This is ${n}, ${/\.(mp4|webm)$/i.test(f.path) ? 'a video' : 'an audio'} file (${(f.bytes / 1024).toFixed(1)} KB). Open the Code tab or double-click the building to play it.${where}`;
   if (f.binary) return `This is ${n}, a binary file (${(f.bytes / 1024).toFixed(1)} KB, no readable code). Its building is small and plain.${where}`;
   const by = f.usedBy.length, uses = f.uses.length, lines = (f.lines || f.loc || 0);
@@ -235,6 +237,7 @@ function say(f) {
   const n = base(f.path), b = buildingOf(f.path);
   if (f.secret) return `I'm ${n}, the vault. I hold secrets, so CodeLens only knows my name; my contents are never read.`;
   if (f.lockfile) return `I'm ${n}, a lockfile. Tools write me (${(f.lines || 0).toLocaleString()} lines) to pin exact dependency versions, so my lines don't count as code.`;
+  if (IMG_RE.test(f.path)) return `I'm ${n}, an image (${(f.bytes / 1024).toFixed(1)} KB). No code in me, but you can look at me.`;
   if (f.binary && MEDIA_RE.test(f.path)) return `I'm ${n}, ${/\.(mp4|webm)$/i.test(f.path) ? 'a video' : 'a sound'} file (${(f.bytes / 1024).toFixed(1)} KB). No code in me, but you can play me.`;
   if (f.binary) return `I'm ${n}, a binary file (${(f.bytes / 1024).toFixed(1)} KB). There is no code in me to explain.`;
   const uses = f.uses.length, by = f.usedBy.length;
@@ -291,16 +294,29 @@ const esc = s => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&g
 async function source(p) { return CL.getSource(project, p); }
 async function showCode(p) {
   const real = $('[data-code-real]'), none = $('[data-code-none]'), msg = $('[data-nocode-msg]');
+  const bar = $('#view-code .cl-editor__tabs');
   real.hidden = true; none.hidden = false; msg.hidden = false; msg.textContent = 'Loading ' + base(p) + '…';
-  clearMedia(none);
+  clearMedia(none); removeToggle(bar);
   const s = await source(p);
-  if (current !== p) { if (s.kind === 'media' && s.revoke) URL.revokeObjectURL(s.url); return; }
+  if (current !== p) { if ((s.kind === 'media' || s.kind === 'image') && s.revoke) URL.revokeObjectURL(s.url); return; }
+  if (s.kind === 'image') {
+    msg.hidden = true; showImage(none, s, base(p)); $('[data-codenote]').textContent = 'Read only · image viewer';
+    if (s.svgText != null) sourceToggle(bar,
+      () => { real.hidden = true; none.hidden = false; $('[data-codenote]').textContent = 'Read only · image viewer'; },
+      () => { renderLines(s.svgText); real.hidden = false; none.hidden = true; real.scrollTop = 0; $('[data-codenote]').textContent = 'Read only · SVG source'; });
+    return;
+  }
   if (s.kind === 'media') { msg.hidden = true; showMedia(none, s, base(p)); $('[data-codenote]').textContent = 'Read only · player'; return; }
+  if (s.kind === 'binary') { msg.hidden = true; showCard(none, s, base(p)); $('[data-codenote]').textContent = 'Read only'; return; }
   if (s.kind !== 'text') { msg.textContent = s.message; $('[data-codenote]').textContent = 'Read only'; return; }
-  const lines = s.text.replace(/\n$/, '').split('\n');
-  $('[data-code-lines]').innerHTML = lines.map((l, i) => '<span class="ln">' + (i + 1) + '</span>' + esc(l)).join('\n');
+  const lines = renderLines(s.text);
   real.hidden = false; none.hidden = true; real.scrollTop = 0;
   $('[data-codenote]').textContent = (s.note ? s.note + ' · ' : '') + 'Read only' + (s.truncated ? ' · first ' + lines.length + ' lines' : '');
+}
+function renderLines(text) {
+  const lines = text.replace(/\n$/, '').split('\n');
+  $('[data-code-lines]').innerHTML = lines.map((l, i) => '<span class="ln">' + (i + 1) + '</span>' + esc(l)).join('\n');
+  return lines;
 }
 
 /* Gemini chat (Talk panel + Ask anything), also usable beside Monaco in focus mode */

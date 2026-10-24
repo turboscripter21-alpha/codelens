@@ -93,7 +93,7 @@ const symName = (s) => s.n + (s.k === 'fn' || s.k === 'method' ? '()' : '');
 export function introOf(f) {
   const n = base(f.path);
   if (f.secret) return `Hi, I'm ${n}, the vault. I hold secrets, so CodeLens only knows my name and never reads me. Keep me out of git!`;
-  if (f.binary) return `Hi, I'm ${n}, ${/\.(mp3|wav|ogg|m4a|flac)$/i.test(f.path) ? 'a sound file' : /\.(mp4|webm)$/i.test(f.path) ? 'a video' : 'a binary file'} (${(f.bytes / 1024).toFixed(1)} KB). No code in me to explain.`;
+  if (f.binary) return `Hi, I'm ${n}, ${/\.(mp3|wav|ogg|m4a|flac)$/i.test(f.path) ? 'a sound file' : /\.(mp4|webm)$/i.test(f.path) ? 'a video' : /\.(png|jpe?g|gif|webp|bmp|ico|avif)$/i.test(f.path) ? 'an image' : 'a binary file'} (${(f.bytes / 1024).toFixed(1)} KB). No code in me to explain.`;
   const parts = [`Hi, I'm ${n}! I'm ${roleOf(f)}, ${f.estimated ? 'about ' : ''}${plural(f.loc, 'line')} of ${f.language}.`];
   const ex = topSymbols(f, 3);
   if (ex.length) parts.push(`My main ${ex.length === 1 ? 'piece is' : 'pieces are'} ${ex.map(symName).join(', ')}.`);

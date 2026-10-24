@@ -114,6 +114,38 @@ export function mediaMime(path: string): string | null {
   return Object.prototype.hasOwnProperty.call(MEDIA_MIME, e) ? MEDIA_MIME[e] : null;
 }
 
+/** Images that open in the image viewer (as an <img> from a blob: URL; SVG is never inlined into the page). */
+const IMAGE_MIME: Record<string, string> = {
+  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp",
+  bmp: "image/bmp", ico: "image/x-icon", avif: "image/avif", svg: "image/svg+xml",
+};
+/** Largest image CodeLens will show (bytes). */
+export const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+export function imageMime(path: string): string | null {
+  const e = extOf(path);
+  return Object.prototype.hasOwnProperty.call(IMAGE_MIME, e) ? IMAGE_MIME[e] : null;
+}
+
+/** Friendly type name for a binary file (shown on its card), e.g. "PDF document", "Font (WOFF2)". */
+export function binaryTypeOf(path: string): string {
+  const e = extOf(path);
+  const up = e.toUpperCase();
+  if (e === "pdf") return "PDF document";
+  if (["woff", "woff2", "ttf", "otf", "eot"].includes(e)) return `Font (${up})`;
+  if (["zip", "gz", "tgz", "bz2", "xz", "7z", "rar", "tar", "jar", "war"].includes(e)) return `Archive (${up})`;
+  if (["apk", "ipa", "dmg", "iso"].includes(e)) return `App / disk image (${up})`;
+  if (["exe", "dll", "so", "dylib", "bin", "o", "a", "lib", "class", "pyc", "pyo", "wasm", "node"].includes(e)) return `Compiled binary (${up})`;
+  if (["doc", "docx", "xls", "xlsx", "ppt", "pptx"].includes(e)) return `Office document (${up})`;
+  if (["sqlite", "db"].includes(e)) return `Database (${up})`;
+  if (["glb", "gltf", "fbx", "obj", "blend"].includes(e)) return `3D model (${up})`;
+  if (["tif", "tiff", "psd", "heic"].includes(e)) return `Image (${up}, not shown in browsers)`;
+  if (["mov", "avi", "mkv"].includes(e)) return `Video (${up}, not playable here)`;
+  if (imageMime(path)) return `Image (${up})`;
+  const m = mediaMime(path);
+  if (m) return (m.startsWith("video/") ? "Video" : "Audio") + ` (${up})`;
+  return e ? `Binary file (${up})` : "Binary file";
+}
+
 export function isBinaryExt(path: string): boolean {
   return BINARY_EXT.has(extOf(path));
 }
